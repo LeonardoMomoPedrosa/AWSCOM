@@ -31,14 +31,9 @@ scp aviseme-emailer.zip usuario@seu-ip:/tmp/
 # Conectar no EC2
 ssh -i sua-chave.pem ec2-user@seu-ip
 
-# Instalar .NET 8 (se não tiver)
-sudo dnf install dotnet-runtime-8.0 -y
-# OU para Ubuntu:
-# wget https://dot.net/v1/dotnet-install.sh && chmod +x dotnet-install.sh && sudo ./dotnet-install.sh --channel 8.0 --runtime dotnet
-
 # Extrair aplicação
-mkdir -p ~/AVISEME
-cd ~/AVISEME
+mkdir -p ~/Aviseme
+cd ~/Aviseme
 unzip -o /tmp/aviseme-emailer.zip
 chmod +x AvisemeEmailer
 ```
@@ -48,7 +43,7 @@ chmod +x AvisemeEmailer
 ### **4. Configurar**
 
 ```bash
-nano ~/AVISEME/appsettings.json
+nano ~/Aviseme/appsettings.json
 ```
 
 Edite a connection string:
@@ -73,7 +68,7 @@ Salvar: `Ctrl+O` → `Enter` → `Ctrl+X`
 ### **5. Testar**
 
 ```bash
-cd ~/AVISEME
+cd ~/Aviseme
 dotnet AvisemeEmailer.dll
 ```
 
@@ -103,7 +98,7 @@ crontab -e
 Adicionar linha (executar todo dia às 9h):
 
 ```bash
-0 9 * * * cd ~/AVISEME && /usr/bin/dotnet AvisemeEmailer.dll >> ~/AVISEME/aviseme.log 2>&1
+0 9 * * * cd ~/Aviseme && /usr/bin/dotnet AvisemeEmailer.dll >> ~/Aviseme/aviseme.log 2>&1
 ```
 
 Salvar e sair.
@@ -114,13 +109,13 @@ Salvar e sair.
 
 ```bash
 # Ver logs em tempo real
-tail -f ~/AVISEME/aviseme.log
+tail -f ~/Aviseme/aviseme.log
 
 # Ver últimas 50 linhas
-tail -50 ~/AVISEME/aviseme.log
+tail -50 ~/Aviseme/aviseme.log
 
 # Ver apenas erros
-grep "❌" ~/AVISEME/aviseme.log
+grep "❌" ~/Aviseme/aviseme.log
 ```
 
 ---
@@ -135,7 +130,7 @@ A aplicação vai rodar automaticamente todo dia às 9h e enviar emails para os 
 
 ### **Executar manualmente**
 ```bash
-cd ~/AVISEME && dotnet AvisemeEmailer.dll
+cd ~/Aviseme && dotnet AvisemeEmailer.dll
 ```
 
 ### **Ver cron jobs configurados**
@@ -152,7 +147,7 @@ crontab -l
 scp aviseme-emailer.zip usuario@ec2:/tmp/
 
 # No EC2: extrair
-cd ~/AVISEME
+cd ~/Aviseme
 unzip -o /tmp/aviseme-emailer.zip
 ```
 

@@ -169,8 +169,8 @@ jobs:
             echo "=========================================="
             
             DEPLOY_ZIP="/home/ec2-user/deploys/aviseme-emailer.zip"
-            TARGET_DIR="$HOME/AVISEME"
-            BACKUP_DIR="$HOME/AVISEME-backup-$(date +%Y%m%d-%H%M%S)"
+            TARGET_DIR="$HOME/Aviseme"
+            BACKUP_DIR="$HOME/Aviseme-backup-$(date +%Y%m%d-%H%M%S)"
             
             # Verificar se arquivo foi enviado
             if [ ! -f "$DEPLOY_ZIP" ]; then
@@ -247,11 +247,11 @@ jobs:
             echo "=========================================="
             echo "  📋 Como executar:"
             echo "=========================================="
-            echo "  cd ~/AVISEME"
+            echo "  cd ~/Aviseme"
             echo "  dotnet AvisemeEmailer.dll"
             echo ""
             echo "  Ou configure no cron:"
-            echo "  0 9 * * * cd ~/AVISEME && /usr/bin/dotnet AvisemeEmailer.dll >> ~/AVISEME/aviseme.log 2>&1"
+            echo "  0 9 * * * cd ~/Aviseme && /usr/bin/dotnet AvisemeEmailer.dll >> ~/Aviseme/aviseme.log 2>&1"
             echo "=========================================="
 
   close-ssh-port:

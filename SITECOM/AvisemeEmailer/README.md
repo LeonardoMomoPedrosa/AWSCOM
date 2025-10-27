@@ -16,23 +16,10 @@ Aplicação console .NET 8 para enviar emails de notificação de produtos em es
 
 ### **Pré-requisitos no EC2:**
 
-1. **.NET 8 Runtime instalado:**
-```bash
-# Ubuntu/Debian
-wget https://dot.net/v1/dotnet-install.sh
-chmod +x dotnet-install.sh
-sudo ./dotnet-install.sh --channel 8.0 --runtime dotnet
+**Requisitos:**
 
-# Amazon Linux 2023
-sudo dnf install dotnet-runtime-8.0 -y
-```
-
-2. **AWS CLI configurado** (com IAM Role ou credenciais):
-```bash
-aws configure
-# Ou usar IAM Role anexada ao EC2
-```
-
+1. **.NET 8 Runtime instalado**
+2. **AWS CLI configurado** (com IAM Role ou credenciais)
 3. **Permissões IAM necessárias:**
    - `ses:SendEmail`
    - `ses:SendRawEmail`
@@ -77,7 +64,7 @@ sudo chmod +x AvisemeEmailer
 Edite o arquivo no EC2:
 
 ```bash
-nano ~/AVISEME/appsettings.json
+nano ~/Aviseme/appsettings.json
 ```
 
 **Opção A: Connection String direta**
@@ -113,7 +100,7 @@ nano ~/AVISEME/appsettings.json
 ### **Passo 4: Testar execução manual**
 
 ```bash
-cd ~/AVISEME
+cd ~/Aviseme
 dotnet AvisemeEmailer.dll
 ```
 
@@ -149,19 +136,19 @@ crontab -e
 
 Adicionar linha para executar **todo dia às 9h da manhã**:
 ```bash
-0 9 * * * cd ~/AVISEME && /usr/bin/dotnet AvisemeEmailer.dll >> ~/AVISEME/aviseme.log 2>&1
+0 9 * * * cd ~/Aviseme && /usr/bin/dotnet AvisemeEmailer.dll >> ~/Aviseme/aviseme.log 2>&1
 ```
 
 Outras opções de horário:
 ```bash
 # A cada hora
-0 * * * * cd ~/AVISEME && /usr/bin/dotnet AvisemeEmailer.dll >> ~/AVISEME/aviseme.log 2>&1
+0 * * * * cd ~/Aviseme && /usr/bin/dotnet AvisemeEmailer.dll >> ~/Aviseme/aviseme.log 2>&1
 
 # Segunda a sexta às 9h e 15h
-0 9,15 * * 1-5 cd ~/AVISEME && /usr/bin/dotnet AvisemeEmailer.dll >> ~/AVISEME/aviseme.log 2>&1
+0 9,15 * * 1-5 cd ~/Aviseme && /usr/bin/dotnet AvisemeEmailer.dll >> ~/Aviseme/aviseme.log 2>&1
 
 # A cada 30 minutos
-*/30 * * * * cd ~/AVISEME && /usr/bin/dotnet AvisemeEmailer.dll >> ~/AVISEME/aviseme.log 2>&1
+*/30 * * * * cd ~/Aviseme && /usr/bin/dotnet AvisemeEmailer.dll >> ~/Aviseme/aviseme.log 2>&1
 ```
 
 ---
@@ -170,13 +157,13 @@ Outras opções de horário:
 
 ```bash
 # Ver últimas execuções
-tail -f ~/AVISEME/aviseme.log
+tail -f ~/Aviseme/aviseme.log
 
 # Ver apenas erros
-grep "❌" ~/AVISEME/aviseme.log
+grep "❌" ~/Aviseme/aviseme.log
 
 # Ver resumo de emails enviados
-grep "email(s) enviado(s)" ~/AVISEME/aviseme.log
+grep "email(s) enviado(s)" ~/Aviseme/aviseme.log
 ```
 
 ---
