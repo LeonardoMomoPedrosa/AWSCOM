@@ -20,10 +20,6 @@ try
     // 1. Obter connection string
     Console.WriteLine("\n[STEP 1] Obtendo connection string...");
     
-    var useSecretsManager = config["UseSecretsManager"];
-    Console.WriteLine($"   🔧 UseSecretsManager: {useSecretsManager ?? "(null)"}");
-    Console.WriteLine($"   📍 SecretArn: {config["SecretArn"] ?? "(null)"}");
-    
     var connectionString = config["UseSecretsManager"]?.Equals("true", StringComparison.OrdinalIgnoreCase) == true
         ? await GetConnectionStringFromSecretsManager(config["SecretArn"]!)
         : config["ConnectionString"]!;
