@@ -1,0 +1,22 @@
+# Build results
+bin/
+obj/
+publish/
+*.zip
+
+# User-specific files
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# Visual Studio cache/options
+.vs/
+
+# Configuration (pode conter senhas)
+appsettings.*.json
+!appsettings.json
+
+# Logs
+*.log
+
