@@ -107,6 +107,22 @@ jobs:
         with:
           name: AvisemeEmailer
 
+      - name: Verificar arquivo baixado
+        run: |
+          echo "=== Conteúdo do diretório atual ==="
+          pwd
+          ls -la
+          echo ""
+          echo "=== Verificando arquivo específico ==="
+          if [ -f "aviseme-emailer.zip" ]; then
+            ls -lh aviseme-emailer.zip
+            echo "✅ Arquivo encontrado!"
+          else
+            echo "❌ Arquivo aviseme-emailer.zip NÃO encontrado!"
+            echo "Procurando arquivos .zip:"
+            find . -name "*.zip" -type f
+          fi
+
       - name: Enviar artefato para o Bastion
         uses: appleboy/scp-action@v0.1.4
         with:
