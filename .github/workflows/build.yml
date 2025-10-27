@@ -102,6 +102,24 @@ jobs:
     runs-on: ubuntu-latest
     needs: [ build, open-ssh-port ]
     steps:
+      - name: Aguardar propagação da regra SSH
+        run: |
+          echo "⏳ Aguardando 10 segundos para garantir que a porta SSH está aberta..."
+          sleep 10
+          echo "✅ Prosseguindo com o transfer"
+      
+      - name: Testar conectividade SSH
+        uses: appleboy/ssh-action@v1.1.0
+        with:
+          host: ${{ secrets.BASTION_HOST }}
+          username: ${{ secrets.BASTION_USERNAME }}
+          key: ${{ secrets.BASTION_SSH_KEY }}
+          script: |
+            echo "✅ Conectado no Bastion com sucesso!"
+            whoami
+            pwd
+            ls -la /home/ec2-user/deploys/ || mkdir -p /home/ec2-user/deploys/
+      
       - name: Download artifact
         uses: actions/download-artifact@v4
         with:
