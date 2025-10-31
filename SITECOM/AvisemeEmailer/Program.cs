@@ -158,7 +158,7 @@ static async Task SendEmails(List<AvisemeRecord> records, IConfiguration config)
     var region = Amazon.RegionEndpoint.GetBySystemName(config["SES:Region"]!);
     
     Console.WriteLine($"   📧 From: {fromEmail}");
-    Console.WriteLine($"   📧 CC: {ccEmail}");
+    Console.WriteLine($"   📧 BCC: {ccEmail} (cópia oculta)");
     Console.WriteLine($"   📍 Region: {region.DisplayName}");
     
     using var sesClient = new AmazonSimpleEmailServiceClient(region);
@@ -196,7 +196,7 @@ static async Task SendEmails(List<AvisemeRecord> records, IConfiguration config)
                 Destination = new Destination
                 {
                     ToAddresses = new List<string> { record.Email },
-                    CcAddresses = new List<string> { ccEmail }
+                    BccAddresses = new List<string> { ccEmail }
                 },
                 Message = new Message
                 {
