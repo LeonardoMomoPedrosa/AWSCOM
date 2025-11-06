@@ -66,6 +66,18 @@ jobs:
         working-directory: SITECOM/Tracker
         run: dotnet publish Tracker.csproj -c Release -r linux-x64 -o ../../publish-tracker --self-contained false
 
+      - name: Verificar se appsettings.json foi copiado
+        run: |
+          if [ -f "publish-tracker/appsettings.json" ]; then
+            echo "✅ appsettings.json encontrado no publish"
+            ls -lh publish-tracker/appsettings.json
+          else
+            echo "⚠️ appsettings.json NÃO encontrado no publish!"
+            echo "Copiando do diretório fonte..."
+            cp SITECOM/Tracker/appsettings.json publish-tracker/appsettings.json
+            echo "✅ appsettings.json copiado"
+          fi
+
       - name: Remover appsettings de desenvolvimento
         run: |
           if [ -f "publish-tracker/appsettings.Development.json" ]; then
@@ -192,12 +204,6 @@ jobs:
             echo "📁 Preparando diretório $TARGET_DIR..."
             mkdir -p "$TARGET_DIR"
             
-            # Limpar diretório (manter appsettings.json se existir)
-            if [ -f "$TARGET_DIR/appsettings.json" ]; then
-              echo "💾 Salvando appsettings.json existente..."
-              cp "$TARGET_DIR/appsettings.json" /tmp/tracker-appsettings.json.bak
-            fi
-            
             # Limpar arquivos antigos
             echo "🧹 Limpando arquivos antigos..."
             rm -rf "$TARGET_DIR"/*
@@ -206,11 +212,12 @@ jobs:
             echo "📦 Extraindo pacote..."
             unzip -o "$DEPLOY_ZIP" -d "$TARGET_DIR"
             
-            # Restaurar appsettings.json se existir backup
-            if [ -f "/tmp/tracker-appsettings.json.bak" ]; then
-              echo "♻️ Restaurando appsettings.json..."
-              cp /tmp/tracker-appsettings.json.bak "$TARGET_DIR/appsettings.json"
-              rm /tmp/tracker-appsettings.json.bak
+            # Verificar se appsettings.json foi extraído
+            if [ ! -f "$TARGET_DIR/appsettings.json" ]; then
+              echo "⚠️ appsettings.json não encontrado no pacote! Criando um básico..."
+              printf '{\n  "ConnectionString": "",\n  "UseSecretsManager": true,\n  "SecretArn": "arn:aws:secretsmanager:us-east-1:615283740315:secret:prod/sqlserver/ecom-QABqVU",\n  "DynamoDB": {\n    "TableName": "tracker-pedidos",\n    "Region": "us-east-1"\n  },\n  "Correios": {\n    "Usuario": "",\n    "SecretKey": "",\n    "CartaPostal": "0078034701",\n    "CepOrigem": "01310100"\n  },\n  "EmailService": {\n    "BaseUrl": "https://lion.aquanimal.com.br/ajax/OrderStatusAjaxHandler.ashx"\n  }\n}' > "$TARGET_DIR/appsettings.json"
+            else
+              echo "✅ appsettings.json encontrado no pacote e será usado"
             fi
             
             # Ajustar permissões
