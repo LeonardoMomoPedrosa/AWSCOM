@@ -18,6 +18,7 @@ public class CorreiosService
         _key = key;
         _cartaPostal = cartaPostal;
         _httpClient = new HttpClient();
+        _httpClient.Timeout = TimeSpan.FromSeconds(30); // Timeout de 30 segundos
         _httpClient.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
     }
 
@@ -81,6 +82,7 @@ public class CorreiosService
         
         // Criar um HttpClient separado para autenticação (sem headers anteriores)
         using var authClient = new HttpClient();
+        authClient.Timeout = TimeSpan.FromSeconds(10); // Timeout de 10 segundos
         
         var credentials = Convert.ToBase64String(Encoding.UTF8.GetBytes($"{_key}:{_cartaPostal}"));
         
@@ -90,8 +92,34 @@ public class CorreiosService
         
         // Log de debug (sem mostrar valores reais)
         Console.WriteLine($"      🔐 Tentando autenticar... (Key: {(_key.Length > 0 ? "***" + _key.Substring(Math.Max(0, _key.Length - 4)) : "VAZIA")}, CartaPostal: {_cartaPostal})");
+        Console.WriteLine($"      ⏳ Aguardando resposta da API (timeout: 10s)...");
         
-        var response = await authClient.SendAsync(request);
+        // Usar CancellationTokenSource para controle preciso do timeout
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        
+        HttpResponseMessage response;
+        try
+        {
+            response = await authClient.SendAsync(request, cts.Token);
+            Console.WriteLine($"      ✅ Resposta recebida: {response.StatusCode}");
+        }
+        catch (TaskCanceledException) when (cts.Token.IsCancellationRequested)
+        {
+            throw new Exception("Timeout ao tentar autenticar nos Correios. A API não respondeu em 10 segundos. Verifique:\n" +
+                "  - Conectividade de rede\n" +
+                "  - Se a API dos Correios está acessível\n" +
+                "  - Se há firewall bloqueando a conexão\n" +
+                "  - Teste manualmente: curl -X POST https://api.correios.com.br/token/v1/autentica/cartaopostagem");
+        }
+        catch (TaskCanceledException ex)
+        {
+            throw new Exception($"Requisição cancelada: {ex.Message}");
+        }
+        catch (HttpRequestException ex)
+        {
+            throw new Exception($"Erro de rede ao tentar autenticar nos Correios: {ex.Message}\n" +
+                "Verifique a conectividade de rede e se a API dos Correios está acessível.");
+        }
         
         if (!response.IsSuccessStatusCode)
         {
