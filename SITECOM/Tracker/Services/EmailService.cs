@@ -93,8 +93,8 @@ public class EmailService
     {
         var eventos = objeto.Eventos ?? new List<EventoDTO>();
         
-        // Ordenar eventos: mais recente primeiro
-        eventos = eventos.OrderByDescending(e => e.DtHrCriado).ToList();
+        // Ordenar eventos: mais antigo primeiro (para mostrar progresso de baixo para cima)
+        eventos = eventos.OrderBy(e => e.DtHrCriado).ToList();
 
         var codObjeto = objeto.CodObjeto ?? "N/A";
         var tipoPostal = objeto.TipoPostal?.Descricao ?? objeto.TipoPostal?.Sigla ?? "N/A";
@@ -128,6 +128,13 @@ public class EmailService
             margin-bottom: 30px;
             padding-bottom: 20px;
             border-bottom: 2px solid #0d6efd;
+        }}
+        .header-logo {{
+            margin-bottom: 15px;
+        }}
+        .header-logo img {{
+            width: 100px;
+            height: auto;
         }}
         .header h1 {{
             color: #0d6efd;
@@ -167,39 +174,59 @@ public class EmailService
         }}
         .timeline-container {{
             position: relative;
-            padding-left: 55px;
+            padding-left: 70px;
             margin-top: 20px;
+            padding-bottom: 10px;
+        }}
+        .timeline-vertical-line {{
+            position: absolute;
+            left: 29px;
+            top: 0;
+            bottom: 0;
+            width: 3px;
+            background-color: #dee2e6;
+            z-index: 1;
+            border-radius: 2px;
         }}
         .timeline-item {{
             position: relative;
-            margin-bottom: 30px;
+            margin-bottom: 25px;
+            padding-bottom: 5px;
         }}
-        .timeline-line {{
+        .timeline-item:last-child {{
+            margin-bottom: 0;
+        }}
+        .timeline-dot {{
             position: absolute;
-            left: -20px;
-            top: 30px;
-            width: 2px;
-            height: calc(100% + 1rem);
+            left: 23px;
+            top: 12px;
+            width: 12px;
+            height: 12px;
             background-color: #dee2e6;
-            z-index: 1;
+            border: 2px solid #ffffff;
+            border-radius: 50%;
+            z-index: 3;
+            box-shadow: 0 0 0 2px #dee2e6;
         }}
-        .timeline-item:last-child .timeline-line {{
-            display: none;
+        .timeline-dot.active {{
+            background-color: #0d6efd;
+            box-shadow: 0 0 0 2px #0d6efd;
         }}
         .timeline-icon {{
             position: absolute;
-            left: -40px;
-            top: 0;
-            width: 48px;
-            height: 48px;
+            left: 11px;
+            top: 0px;
+            width: 40px;
+            height: 40px;
             display: flex;
             align-items: center;
             justify-content: center;
-            background-color: rgba(13, 110, 253, 0.1);
-            border: 2px solid #0d6efd;
+            background-color: rgba(13, 110, 253, 0.15);
+            border: 3px solid #0d6efd;
             border-radius: 50%;
             z-index: 10;
             font-size: 28px;
+            box-shadow: 0 2px 6px rgba(13, 110, 253, 0.3);
         }}
         .event-card {{
             background-color: #ffffff;
@@ -259,6 +286,9 @@ public class EmailService
 <body>
     <div class=""container"">
         <div class=""header"">
+            <div class=""header-logo"">
+                <img src=""https://aquanimal.com.br/images/mailogo.jpg"" alt=""Aquanimal"" style=""width: 100px;"">
+            </div>
             <h1>📦 Atualização de Rastreamento</h1>
         </div>
         
@@ -285,12 +315,14 @@ public class EmailService
 
         <h3 style=""margin-top: 30px; margin-bottom: 15px;"">Histórico de Rastreamento</h3>
         
-        <div class=""timeline-container"">";
+        <div class=""timeline-container"">
+            <!-- Linha vertical contínua (progresso de baixo para cima) -->
+            <div class=""timeline-vertical-line""></div>";
 
         for (int i = 0; i < eventos.Count; i++)
         {
             var evento = eventos[i];
-            var isFirst = i == 0;
+            var isLast = i == eventos.Count - 1; // Último = mais recente (no topo após ordenação)
             var eventoDate = evento.DtHrCriado.ToString("dd/MM/yyyy HH:mm:ss");
             
             var localizacao = "";
@@ -301,20 +333,20 @@ public class EmailService
                 localizacao = $"{cidade}/{uf}".Trim('/');
             }
 
-            var linhaVertical = i < eventos.Count - 1 
-                ? @"<div class=""timeline-line""></div>" 
-                : "";
-
-            var icone = isFirst 
+            // Peixe apenas no último evento (mais recente) - acompanha a linha vertical
+            var icone = isLast 
                 ? @"<div class=""timeline-icon"">🐟</div>" 
                 : "";
 
-            var cardClass = isFirst ? "event-card" : "event-card-old";
-            var titleClass = isFirst ? "event-title" : "event-title-old";
+            // Ponto na linha para cada evento (azul para o mais recente, cinza para os anteriores)
+            var dotClass = isLast ? "timeline-dot active" : "timeline-dot";
+
+            var cardClass = isLast ? "event-card" : "event-card-old";
+            var titleClass = isLast ? "event-title" : "event-title-old";
 
             html += $@"
             <div class=""timeline-item"">
-                {linhaVertical}
+                <div class=""{dotClass}""></div>
                 {icone}
                 <div class=""{cardClass}"">
                     <div class=""{titleClass}"">{evento.Descricao ?? "N/A"}</div>
