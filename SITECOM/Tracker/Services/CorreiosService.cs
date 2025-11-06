@@ -84,14 +84,32 @@ public class CorreiosService
         using var authClient = new HttpClient();
         authClient.Timeout = TimeSpan.FromSeconds(10); // Timeout de 10 segundos
         
-        var credentials = Convert.ToBase64String(Encoding.UTF8.GetBytes($"{_key}:{_cartaPostal}"));
+        // Verificar se a chave parece estar em base64 (termina com = ou ==)
+        var keyToUse = _key;
+        if (_key.EndsWith("=") || _key.EndsWith("=="))
+        {
+            // Se a chave parece estar em base64, tentar decodificar primeiro
+            try
+            {
+                var decodedKey = Encoding.UTF8.GetString(Convert.FromBase64String(_key));
+                Console.WriteLine($"      ℹ️  Chave parece estar em base64, decodificando...");
+                keyToUse = decodedKey;
+            }
+            catch
+            {
+                // Se não conseguir decodificar, usar a chave original
+                Console.WriteLine($"      ℹ️  Chave não é base64 válido, usando como está");
+            }
+        }
+        
+        var credentials = Convert.ToBase64String(Encoding.UTF8.GetBytes($"{keyToUse}:{_cartaPostal}"));
         
         var request = new HttpRequestMessage(HttpMethod.Post, authUrl);
         request.Headers.Authorization = new AuthenticationHeaderValue("Basic", credentials);
         request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
         
         // Log de debug (sem mostrar valores reais)
-        Console.WriteLine($"      🔐 Tentando autenticar... (Key: {(_key.Length > 0 ? "***" + _key.Substring(Math.Max(0, _key.Length - 4)) : "VAZIA")}, CartaPostal: {_cartaPostal})");
+        Console.WriteLine($"      🔐 Tentando autenticar... (Key length: {_key.Length}, CartaPostal: {_cartaPostal})");
         Console.WriteLine($"      ⏳ Aguardando resposta da API (timeout: 10s)...");
         
         // Usar CancellationTokenSource para controle preciso do timeout
