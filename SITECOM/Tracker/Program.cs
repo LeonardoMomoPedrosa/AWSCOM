@@ -42,9 +42,13 @@ try
     var correiosCartaPostal = config["Correios:CartaPostal"] ?? string.Empty;
     var emailBaseUrl = config["EmailService:BaseUrl"] ?? "https://lion.aquanimal.com.br/ajax/OrderStatusAjaxHandler.ashx";
 
+    // Log de debug (sem mostrar valores completos)
+    Console.WriteLine($"   🔑 Chave dos Correios: {(string.IsNullOrWhiteSpace(correiosKey) ? "NÃO CONFIGURADA" : "***" + correiosKey.Substring(Math.Max(0, correiosKey.Length - 4)))}");
+    Console.WriteLine($"   📮 Cartão Postal: {correiosCartaPostal}");
+
     if (string.IsNullOrWhiteSpace(correiosKey))
     {
-        throw new Exception("Chave dos Correios não configurada! Configure 'Correios:Key' no appsettings.json");
+        throw new Exception("Chave dos Correios não configurada! Configure 'Correios:Key' no appsettings.json ou via variável de ambiente 'Correios__Key'");
     }
 
     if (string.IsNullOrWhiteSpace(correiosCartaPostal))

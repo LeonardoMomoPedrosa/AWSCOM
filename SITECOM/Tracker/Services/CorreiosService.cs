@@ -79,17 +79,39 @@ public class CorreiosService
         // Obter novo token
         var authUrl = "https://api.correios.com.br/token/v1/autentica/cartaopostagem";
         
+        // Criar um HttpClient separado para autenticação (sem headers anteriores)
+        using var authClient = new HttpClient();
+        
         var credentials = Convert.ToBase64String(Encoding.UTF8.GetBytes($"{_key}:{_cartaPostal}"));
         
         var request = new HttpRequestMessage(HttpMethod.Post, authUrl);
         request.Headers.Authorization = new AuthenticationHeaderValue("Basic", credentials);
+        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
         
-        var response = await _httpClient.SendAsync(request);
+        // Log de debug (sem mostrar valores reais)
+        Console.WriteLine($"      🔐 Tentando autenticar... (Key: {(_key.Length > 0 ? "***" + _key.Substring(Math.Max(0, _key.Length - 4)) : "VAZIA")}, CartaPostal: {_cartaPostal})");
+        
+        var response = await authClient.SendAsync(request);
         
         if (!response.IsSuccessStatusCode)
         {
             var errorContent = await response.Content.ReadAsStringAsync();
-            throw new Exception($"Erro ao obter token dos Correios: {response.StatusCode} - {errorContent}. Verifique se a chave e o cartão postal estão corretos.");
+            var statusCode = response.StatusCode;
+            
+            // Log detalhado do erro
+            Console.WriteLine($"      ❌ Status: {statusCode}");
+            Console.WriteLine($"      ❌ Resposta: {errorContent}");
+            
+            if (statusCode == System.Net.HttpStatusCode.Unauthorized)
+            {
+                throw new Exception($"Autenticação falhou (401). Verifique:\n" +
+                    $"  - Se a chave dos Correios está correta\n" +
+                    $"  - Se o cartão postal está correto\n" +
+                    $"  - Se as credenciais têm permissão para acessar a API\n" +
+                    $"  - Se a variável de ambiente Correios__Key está configurada corretamente");
+            }
+            
+            throw new Exception($"Erro ao obter token dos Correios: {statusCode} - {errorContent}");
         }
         
         var jsonContent = await response.Content.ReadAsStringAsync();
