@@ -38,17 +38,24 @@ try
     Console.WriteLine("\n[STEP 2] Inicializando serviços...");
     var tableName = config["DynamoDB:TableName"] ?? "tracker-pedidos";
     var region = config["DynamoDB:Region"] ?? "us-east-1";
-    var correiosKey = config["Correios:Key"] ?? string.Empty;
+    var correiosUsuario = config["Correios:Usuario"] ?? string.Empty;
+    var correiosSecretKey = config["Correios:SecretKey"] ?? string.Empty;
     var correiosCartaPostal = config["Correios:CartaPostal"] ?? string.Empty;
     var emailBaseUrl = config["EmailService:BaseUrl"] ?? "https://lion.aquanimal.com.br/ajax/OrderStatusAjaxHandler.ashx";
 
     // Log de debug (sem mostrar valores completos)
-    Console.WriteLine($"   🔑 Chave dos Correios: {(string.IsNullOrWhiteSpace(correiosKey) ? "NÃO CONFIGURADA" : "***" + correiosKey.Substring(Math.Max(0, correiosKey.Length - 4)))}");
+    Console.WriteLine($"   👤 Usuário dos Correios: {(string.IsNullOrWhiteSpace(correiosUsuario) ? "NÃO CONFIGURADO" : correiosUsuario)}");
+    Console.WriteLine($"   🔑 Secret Key: {(string.IsNullOrWhiteSpace(correiosSecretKey) ? "NÃO CONFIGURADA" : "***" + correiosSecretKey.Substring(Math.Max(0, correiosSecretKey.Length - 4)))}");
     Console.WriteLine($"   📮 Cartão Postal: {correiosCartaPostal}");
 
-    if (string.IsNullOrWhiteSpace(correiosKey))
+    if (string.IsNullOrWhiteSpace(correiosUsuario))
     {
-        throw new Exception("Chave dos Correios não configurada! Configure 'Correios:Key' no appsettings.json ou via variável de ambiente 'Correios__Key'");
+        throw new Exception("Usuário dos Correios não configurado! Configure 'Correios:Usuario' no appsettings.json ou via variável de ambiente 'Correios__Usuario'");
+    }
+
+    if (string.IsNullOrWhiteSpace(correiosSecretKey))
+    {
+        throw new Exception("Secret Key dos Correios não configurada! Configure 'Correios:SecretKey' no appsettings.json ou via variável de ambiente 'Correios__SecretKey'");
     }
 
     if (string.IsNullOrWhiteSpace(correiosCartaPostal))
@@ -57,7 +64,7 @@ try
     }
 
     dynamoService = new DynamoDBService(tableName, region);
-    correiosService = new CorreiosService(correiosKey, correiosCartaPostal);
+    correiosService = new CorreiosService(correiosUsuario, correiosSecretKey, correiosCartaPostal);
     sqlService = new SqlServerService(connectionString);
     emailService = new EmailService(emailBaseUrl);
     Console.WriteLine("✅ Serviços inicializados");

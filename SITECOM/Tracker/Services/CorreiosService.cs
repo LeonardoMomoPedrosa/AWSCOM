@@ -8,14 +8,16 @@ namespace Tracker.Services;
 public class CorreiosService
 {
     private readonly HttpClient _httpClient;
-    private readonly string _key;
+    private readonly string _usuario;
+    private readonly string _secretKey;
     private readonly string _cartaPostal;
     private string? _cachedToken;
     private DateTime _tokenExpiry = DateTime.MinValue;
 
-    public CorreiosService(string key, string cartaPostal)
+    public CorreiosService(string usuario, string secretKey, string cartaPostal)
     {
-        _key = key;
+        _usuario = usuario;
+        _secretKey = secretKey;
         _cartaPostal = cartaPostal;
         _httpClient = new HttpClient();
         _httpClient.Timeout = TimeSpan.FromSeconds(30); // Timeout de 30 segundos
@@ -67,9 +69,14 @@ public class CorreiosService
         }
 
         // Validar credenciais
-        if (string.IsNullOrWhiteSpace(_key))
+        if (string.IsNullOrWhiteSpace(_usuario))
         {
-            throw new Exception("Chave dos Correios não configurada. Configure 'Correios:Key' no appsettings.json");
+            throw new Exception("Usuário dos Correios não configurado. Configure 'Correios:Usuario' no appsettings.json ou via variável de ambiente 'Correios__Usuario'");
+        }
+
+        if (string.IsNullOrWhiteSpace(_secretKey))
+        {
+            throw new Exception("Secret Key dos Correios não configurada. Configure 'Correios:SecretKey' no appsettings.json ou via variável de ambiente 'Correios__SecretKey'");
         }
 
         if (string.IsNullOrWhiteSpace(_cartaPostal))
@@ -84,32 +91,15 @@ public class CorreiosService
         using var authClient = new HttpClient();
         authClient.Timeout = TimeSpan.FromSeconds(10); // Timeout de 10 segundos
         
-        // Verificar se a chave parece estar em base64 (termina com = ou ==)
-        var keyToUse = _key;
-        if (_key.EndsWith("=") || _key.EndsWith("=="))
-        {
-            // Se a chave parece estar em base64, tentar decodificar primeiro
-            try
-            {
-                var decodedKey = Encoding.UTF8.GetString(Convert.FromBase64String(_key));
-                Console.WriteLine($"      ℹ️  Chave parece estar em base64, decodificando...");
-                keyToUse = decodedKey;
-            }
-            catch
-            {
-                // Se não conseguir decodificar, usar a chave original
-                Console.WriteLine($"      ℹ️  Chave não é base64 válido, usando como está");
-            }
-        }
-        
-        var credentials = Convert.ToBase64String(Encoding.UTF8.GetBytes($"{keyToUse}:{_cartaPostal}"));
+        // Criar credenciais Basic Auth: usuario:secretKey em base64
+        var credentials = Convert.ToBase64String(Encoding.UTF8.GetBytes($"{_usuario}:{_secretKey}"));
         
         var request = new HttpRequestMessage(HttpMethod.Post, authUrl);
         request.Headers.Authorization = new AuthenticationHeaderValue("Basic", credentials);
         request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
         
         // Log de debug (sem mostrar valores reais)
-        Console.WriteLine($"      🔐 Tentando autenticar... (Key length: {_key.Length}, CartaPostal: {_cartaPostal})");
+        Console.WriteLine($"      🔐 Tentando autenticar... (Usuario: {_usuario}, SecretKey: ***{(_secretKey.Length > 4 ? _secretKey.Substring(_secretKey.Length - 4) : "****")}, CartaPostal: {_cartaPostal})");
         Console.WriteLine($"      ⏳ Aguardando resposta da API (timeout: 10s)...");
         
         // Usar CancellationTokenSource para controle preciso do timeout
@@ -151,10 +141,11 @@ public class CorreiosService
             if (statusCode == System.Net.HttpStatusCode.Unauthorized)
             {
                 throw new Exception($"Autenticação falhou (401). Verifique:\n" +
-                    $"  - Se a chave dos Correios está correta\n" +
+                    $"  - Se o usuário dos Correios está correto\n" +
+                    $"  - Se a secret key está correta\n" +
                     $"  - Se o cartão postal está correto\n" +
                     $"  - Se as credenciais têm permissão para acessar a API\n" +
-                    $"  - Se a variável de ambiente Correios__Key está configurada corretamente");
+                    $"  - Se as variáveis de ambiente Correios__Usuario e Correios__SecretKey estão configuradas corretamente");
             }
             
             throw new Exception($"Erro ao obter token dos Correios: {statusCode} - {errorContent}");
