@@ -94,7 +94,15 @@ public class CorreiosService
         // Criar credenciais Basic Auth: usuario:secretKey em base64
         var credentials = Convert.ToBase64String(Encoding.UTF8.GetBytes($"{_usuario}:{_secretKey}"));
         
-        var request = new HttpRequestMessage(HttpMethod.Post, authUrl);
+        // Criar body JSON com o número do cartão postal
+        var body = new { numero = _cartaPostal };
+        var jsonBody = JsonSerializer.Serialize(body);
+        var content = new StringContent(jsonBody, Encoding.UTF8, "application/json");
+        
+        var request = new HttpRequestMessage(HttpMethod.Post, authUrl)
+        {
+            Content = content
+        };
         request.Headers.Authorization = new AuthenticationHeaderValue("Basic", credentials);
         request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
         
