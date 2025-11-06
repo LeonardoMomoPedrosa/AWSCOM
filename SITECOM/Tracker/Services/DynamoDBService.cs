@@ -114,7 +114,9 @@ public class DynamoDBService
             TipoEnvio = item.ContainsKey("tipo_envio") ? item["tipo_envio"].S : string.Empty,
             CodRastreamento = item.ContainsKey("cod_rastreamento") ? item["cod_rastreamento"].S : string.Empty,
             RastreamentoJson = item.ContainsKey("rastreamento_json") ? item["rastreamento_json"].S : string.Empty,
-            DataCriacao = item.ContainsKey("data_criacao") ? item["data_criacao"].S : string.Empty
+            DataCriacao = item.ContainsKey("data_criacao") ? item["data_criacao"].S : string.Empty,
+            Email = item.ContainsKey("email") ? item["email"].S : string.Empty,
+            Nome = item.ContainsKey("nome") ? item["nome"].S : string.Empty
         };
     }
 
@@ -148,6 +150,16 @@ public class DynamoDBService
         else
         {
             item["data_criacao"] = new AttributeValue { S = DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ") };
+        }
+
+        if (!string.IsNullOrEmpty(record.Email))
+        {
+            item["email"] = new AttributeValue { S = record.Email };
+        }
+
+        if (!string.IsNullOrEmpty(record.Nome))
+        {
+            item["nome"] = new AttributeValue { S = record.Nome };
         }
 
         return item;

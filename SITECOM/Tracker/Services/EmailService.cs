@@ -1,39 +1,346 @@
-using System.Net;
+using Amazon.SimpleEmail;
+using Amazon.SimpleEmail.Model;
+using Tracker.Models;
+using System.Text.Json;
 
 namespace Tracker.Services;
 
 public class EmailService
 {
-    private readonly HttpClient _httpClient;
-    private readonly string _baseUrl;
+    private readonly AmazonSimpleEmailServiceClient _sesClient;
+    private readonly string _fromEmail;
+    private readonly string _bccEmail;
 
-    public EmailService(string baseUrl)
+    public EmailService(string fromEmail, string bccEmail, string region)
     {
-        _baseUrl = baseUrl;
-        _httpClient = new HttpClient();
+        _fromEmail = fromEmail;
+        _bccEmail = bccEmail;
+        var regionEndpoint = Amazon.RegionEndpoint.GetBySystemName(region);
+        _sesClient = new AmazonSimpleEmailServiceClient(regionEndpoint);
     }
 
-    public async Task<bool> ScheduleEmailAsync(int orderId, string rastreamentoJson)
+    public async Task<bool> SendTrackingEmailAsync(string toEmail, string nomeCliente, string rastreamentoJson)
     {
         try
         {
-            var jsonEncoded = WebUtility.UrlEncode(rastreamentoJson);
-            var url = $"{_baseUrl}?trx_tp=7&oid={orderId}&json={jsonEncoded}";
-            
-            var response = await _httpClient.GetAsync(url);
-            
-            // Considera sucesso se retornar 200 OK
-            return response.IsSuccessStatusCode;
+            if (string.IsNullOrWhiteSpace(toEmail))
+            {
+                Console.WriteLine($"      ⚠️  Email vazio para {nomeCliente}. Pulando...");
+                return false;
+            }
+
+            // Deserializar o JSON de rastreamento
+            CorreiosRastreamentoDTO? rastreamento;
+            try
+            {
+                rastreamento = JsonSerializer.Deserialize<CorreiosRastreamentoDTO>(rastreamentoJson, new JsonSerializerOptions
+                {
+                    PropertyNameCaseInsensitive = true
+                });
+            }
+            catch (JsonException ex)
+            {
+                Console.WriteLine($"      ⚠️  Erro ao deserializar JSON de rastreamento: {ex.Message}");
+                return false;
+            }
+
+            if (rastreamento == null || rastreamento.Objetos == null || rastreamento.Objetos.Count == 0)
+            {
+                Console.WriteLine($"      ⚠️  Dados de rastreamento inválidos. Pulando email...");
+                return false;
+            }
+
+            var objeto = rastreamento.Objetos[0];
+            var htmlBody = GenerateTrackingEmailHtml(nomeCliente, objeto);
+
+            var destination = new Destination
+            {
+                ToAddresses = new List<string> { toEmail }
+            };
+
+            // Adicionar CCO (cópia oculta) se configurado
+            if (!string.IsNullOrWhiteSpace(_bccEmail))
+            {
+                destination.BccAddresses = new List<string> { _bccEmail };
+            }
+
+            var request = new SendEmailRequest
+            {
+                Source = _fromEmail,
+                Destination = destination,
+                Message = new Message
+                {
+                    Subject = new Content($"Atualização do Rastreamento - {objeto.CodObjeto ?? "Sua Encomenda"}"),
+                    Body = new Body
+                    {
+                        Html = new Content { Charset = "UTF-8", Data = htmlBody }
+                    }
+                }
+            };
+
+            var response = await _sesClient.SendEmailAsync(request);
+            Console.WriteLine($"      ✅ Email enviado para {toEmail} (MessageId: {response.MessageId})");
+            return true;
         }
-        catch
+        catch (Exception ex)
         {
+            Console.WriteLine($"      ❌ Erro ao enviar email para {toEmail}: {ex.Message}");
             return false;
         }
     }
 
+    private string GenerateTrackingEmailHtml(string nomeCliente, ObjetoRastreamentoDTO objeto)
+    {
+        var eventos = objeto.Eventos ?? new List<EventoDTO>();
+        
+        // Ordenar eventos: mais recente primeiro
+        eventos = eventos.OrderByDescending(e => e.DtHrCriado).ToList();
+
+        var codObjeto = objeto.CodObjeto ?? "N/A";
+        var tipoPostal = objeto.TipoPostal?.Descricao ?? objeto.TipoPostal?.Sigla ?? "N/A";
+        var dtPrevista = objeto.DtPrevista?.ToString("dd/MM/yyyy") ?? "N/A";
+
+        var html = $@"
+<!DOCTYPE html>
+<html lang=""pt-BR"">
+<head>
+    <meta charset=""UTF-8"">
+    <meta name=""viewport"" content=""width=device-width, initial-scale=1.0"">
+    <title>Atualização de Rastreamento</title>
+    <style>
+        body {{
+            font-family: Arial, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f4f4f4;
+        }}
+        .container {{
+            background-color: #ffffff;
+            border-radius: 8px;
+            padding: 30px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }}
+        .header {{
+            text-align: center;
+            margin-bottom: 30px;
+            padding-bottom: 20px;
+            border-bottom: 2px solid #0d6efd;
+        }}
+        .header h1 {{
+            color: #0d6efd;
+            margin: 0;
+            font-size: 24px;
+        }}
+        .greeting {{
+            font-size: 16px;
+            margin-bottom: 20px;
+        }}
+        .info-card {{
+            background-color: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 8px;
+            padding: 15px;
+            margin-bottom: 30px;
+        }}
+        .info-card h3 {{
+            margin-top: 0;
+            color: #333;
+            font-size: 18px;
+            border-bottom: 1px solid #dee2e6;
+            padding-bottom: 10px;
+        }}
+        .info-row {{
+            display: flex;
+            margin-bottom: 10px;
+        }}
+        .info-label {{
+            font-weight: bold;
+            width: 120px;
+            color: #666;
+        }}
+        .info-value {{
+            flex: 1;
+            color: #333;
+        }}
+        .timeline-container {{
+            position: relative;
+            padding-left: 55px;
+            margin-top: 20px;
+        }}
+        .timeline-item {{
+            position: relative;
+            margin-bottom: 30px;
+        }}
+        .timeline-line {{
+            position: absolute;
+            left: -20px;
+            top: 30px;
+            width: 2px;
+            height: calc(100% + 1rem);
+            background-color: #dee2e6;
+            z-index: 1;
+        }}
+        .timeline-item:last-child .timeline-line {{
+            display: none;
+        }}
+        .timeline-icon {{
+            position: absolute;
+            left: -40px;
+            top: 0;
+            width: 48px;
+            height: 48px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background-color: rgba(13, 110, 253, 0.1);
+            border: 2px solid #0d6efd;
+            border-radius: 50%;
+            z-index: 10;
+            font-size: 28px;
+        }}
+        .event-card {{
+            background-color: #ffffff;
+            border: 2px solid #0d6efd;
+            border-radius: 8px;
+            padding: 15px;
+            margin-left: 0;
+        }}
+        .event-card-old {{
+            background-color: #ffffff;
+            border: 1px solid #dee2e6;
+            border-radius: 8px;
+            padding: 15px;
+            margin-left: 0;
+        }}
+        .event-title {{
+            font-size: 16px;
+            font-weight: bold;
+            color: #0d6efd;
+            margin-bottom: 10px;
+        }}
+        .event-title-old {{
+            font-size: 16px;
+            font-weight: bold;
+            color: #333;
+            margin-bottom: 10px;
+        }}
+        .event-detail {{
+            font-size: 14px;
+            color: #666;
+            margin-bottom: 5px;
+        }}
+        .event-location {{
+            font-size: 14px;
+            color: #666;
+            margin-bottom: 5px;
+        }}
+        .event-date {{
+            font-size: 14px;
+            color: #666;
+            margin-bottom: 10px;
+        }}
+        .footer {{
+            margin-top: 30px;
+            padding-top: 20px;
+            border-top: 1px solid #dee2e6;
+            text-align: center;
+            color: #666;
+            font-size: 14px;
+        }}
+        .footer a {{
+            color: #0d6efd;
+            text-decoration: none;
+        }}
+    </style>
+</head>
+<body>
+    <div class=""container"">
+        <div class=""header"">
+            <h1>📦 Atualização de Rastreamento</h1>
+        </div>
+        
+        <div class=""greeting"">
+            <p>Olá <strong>{nomeCliente}</strong>!</p>
+            <p>Estamos felizes em informar a atualização do rastreamento da sua encomenda.</p>
+        </div>
+
+        <div class=""info-card"">
+            <h3>Informações do Objeto</h3>
+            <div class=""info-row"">
+                <div class=""info-label"">Código:</div>
+                <div class=""info-value""><strong>{codObjeto}</strong></div>
+            </div>
+            <div class=""info-row"">
+                <div class=""info-label"">Tipo:</div>
+                <div class=""info-value"">{tipoPostal}</div>
+            </div>
+            <div class=""info-row"">
+                <div class=""info-label"">Previsão:</div>
+                <div class=""info-value"">{dtPrevista}</div>
+            </div>
+        </div>
+
+        <h3 style=""margin-top: 30px; margin-bottom: 15px;"">Histórico de Rastreamento</h3>
+        
+        <div class=""timeline-container"">";
+
+        for (int i = 0; i < eventos.Count; i++)
+        {
+            var evento = eventos[i];
+            var isFirst = i == 0;
+            var eventoDate = evento.DtHrCriado.ToString("dd/MM/yyyy HH:mm:ss");
+            
+            var localizacao = "";
+            if (evento.Unidade?.Endereco != null)
+            {
+                var cidade = evento.Unidade.Endereco.Cidade ?? "";
+                var uf = evento.Unidade.Endereco.Uf ?? "";
+                localizacao = $"{cidade}/{uf}".Trim('/');
+            }
+
+            var linhaVertical = i < eventos.Count - 1 
+                ? @"<div class=""timeline-line""></div>" 
+                : "";
+
+            var icone = isFirst 
+                ? @"<div class=""timeline-icon"">🐟</div>" 
+                : "";
+
+            var cardClass = isFirst ? "event-card" : "event-card-old";
+            var titleClass = isFirst ? "event-title" : "event-title-old";
+
+            html += $@"
+            <div class=""timeline-item"">
+                {linhaVertical}
+                {icone}
+                <div class=""{cardClass}"">
+                    <div class=""{titleClass}"">{evento.Descricao ?? "N/A"}</div>
+                    <div class=""event-date"">📅 {eventoDate}</div>
+                    {(string.IsNullOrEmpty(localizacao) ? "" : $@"<div class=""event-location"">📍 {localizacao}</div>")}
+                    {(string.IsNullOrEmpty(evento.Detalhe) ? "" : $@"<div class=""event-detail"">{evento.Detalhe}</div>")}
+                </div>
+            </div>";
+        }
+
+        html += $@"
+        </div>
+
+        <div class=""footer"">
+            <p>Atenciosamente,<br><strong>Equipe Aquanimal</strong></p>
+            <p><a href=""https://aquanimal.com.br"">aquanimal.com.br</a></p>
+        </div>
+    </div>
+</body>
+</html>";
+
+        return html;
+    }
+
     public void Dispose()
     {
-        _httpClient?.Dispose();
+        _sesClient?.Dispose();
     }
 }
-

@@ -7,5 +7,7 @@ public class TrackingRecord
     public string CodRastreamento { get; set; } = string.Empty;
     public string RastreamentoJson { get; set; } = string.Empty;
     public string DataCriacao { get; set; } = string.Empty;
+    public string Email { get; set; } = string.Empty;
+    public string Nome { get; set; } = string.Empty;
 }
 

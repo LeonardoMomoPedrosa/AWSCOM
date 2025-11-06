@@ -41,7 +41,6 @@ try
     var correiosUsuario = config["Correios:Usuario"] ?? string.Empty;
     var correiosSecretKey = config["Correios:SecretKey"] ?? string.Empty;
     var correiosCartaPostal = config["Correios:CartaPostal"] ?? string.Empty;
-    var emailBaseUrl = config["EmailService:BaseUrl"] ?? "https://lion.aquanimal.com.br/ajax/OrderStatusAjaxHandler.ashx";
 
     // Log de debug (sem mostrar valores completos)
     Console.WriteLine($"   👤 Usuário dos Correios: {(string.IsNullOrWhiteSpace(correiosUsuario) ? "NÃO CONFIGURADO" : correiosUsuario)}");
@@ -63,10 +62,14 @@ try
         throw new Exception("Cartão Postal dos Correios não configurado! Configure 'Correios:CartaPostal' no appsettings.json");
     }
 
+    var sesFromEmail = config["SES:FromEmail"] ?? "aquanimal@aquanimal.com.br";
+    var sesBccEmail = config["SES:CcEmail"] ?? string.Empty; // CCO (cópia oculta)
+    var sesRegion = config["SES:Region"] ?? "us-east-1";
+
     dynamoService = new DynamoDBService(tableName, region);
     correiosService = new CorreiosService(correiosUsuario, correiosSecretKey, correiosCartaPostal);
     sqlService = new SqlServerService(connectionString);
-    emailService = new EmailService(emailBaseUrl);
+    emailService = new EmailService(sesFromEmail, sesBccEmail, sesRegion);
     Console.WriteLine("✅ Serviços inicializados");
 
     // 3. Processar registros existentes no DynamoDB
@@ -194,17 +197,17 @@ static async Task ProcessExistingRecordsAsync(
 
             Console.WriteLine($"      📝 Rastreamento atualizado detectado");
 
-            // 2.3.2.1 - Chamar serviço de email
-            Console.WriteLine($"      📧 Agendando email...");
-            var emailSuccess = await emailService.ScheduleEmailAsync(int.Parse(record.IdPedido), novoJson);
+            // 2.3.2.1 - Enviar email
+            Console.WriteLine($"      📧 Enviando email para {record.Email}...");
+            var emailSuccess = await emailService.SendTrackingEmailAsync(record.Email, record.Nome, novoJson);
 
             if (!emailSuccess)
             {
-                Console.WriteLine($"      ⚠️  Falha ao agendar email, mas continuando com atualização...");
+                Console.WriteLine($"      ⚠️  Falha ao enviar email, mas continuando com atualização...");
             }
             else
             {
-                Console.WriteLine($"      ✅ Email agendado com sucesso");
+                Console.WriteLine($"      ✅ Email enviado com sucesso");
             }
 
             // 2.3.2.2 - Atualizar DynamoDB
@@ -272,13 +275,16 @@ static async Task ProcessNewTrackingRecordsAsync(
 
             // 6.1.2 - Inserir no DynamoDB
             Console.WriteLine($"      💾 Inserindo no DynamoDB...");
+            Console.WriteLine($"      👤 Cliente: {record.Nome} ({record.Email})");
             var trackingRecord = new TrackingRecord
             {
                 IdPedido = record.OrderId.ToString(),
                 TipoEnvio = "C",
                 CodRastreamento = record.Track,
                 RastreamentoJson = rastreamentoJson,
-                DataCriacao = DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ")
+                DataCriacao = DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ"),
+                Email = record.Email,
+                Nome = record.Nome
             };
 
             await dynamoService.PutItemAsync(trackingRecord);
@@ -286,20 +292,28 @@ static async Task ProcessNewTrackingRecordsAsync(
 
             // 6.1.3 - Atualizar status no SQL Server
             Console.WriteLine($"      📝 Atualizando status no SQL Server...");
-            await sqlService.UpdateTrackingStatusAsync(record.OrderId);
-            Console.WriteLine($"      ✅ Status atualizado");
+            try
+            {
+                await sqlService.UpdateTrackingStatusAsync(record.OrderId);
+                Console.WriteLine($"      ✅ Status atualizado");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"      ⚠️  Erro ao atualizar status no SQL Server: {ex.Message}");
+                // Continua mesmo se falhar a atualização do status
+            }
 
-            // 6.1.4 - Chamar serviço de email
-            Console.WriteLine($"      📧 Agendando email...");
-            var emailSuccess = await emailService.ScheduleEmailAsync(record.OrderId, rastreamentoJson);
+            // 6.1.4 - Enviar email (sempre enviar quando inserir novo registro)
+            Console.WriteLine($"      📧 Enviando email para {record.Email}...");
+            var emailSuccess = await emailService.SendTrackingEmailAsync(record.Email, record.Nome, rastreamentoJson);
 
             if (!emailSuccess)
             {
-                Console.WriteLine($"      ⚠️  Falha ao agendar email, mas registro foi criado");
+                Console.WriteLine($"      ⚠️  Falha ao enviar email, mas registro foi criado no DynamoDB");
             }
             else
             {
-                Console.WriteLine($"      ✅ Email agendado com sucesso");
+                Console.WriteLine($"      ✅ Email enviado com sucesso para {record.Email}");
             }
 
             successCount++;

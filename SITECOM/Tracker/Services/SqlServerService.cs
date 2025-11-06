@@ -23,9 +23,12 @@ public class SqlServerService
             SELECT 
                 tc.orderid,
                 c.via,
-                c.track
+                c.track,
+                u.email,
+                u.nome
             FROM tbtrackcontrol tc
             JOIN tbcompra c ON c.pkid = tc.orderid
+            JOIN tbUsuarios u ON u.id = c.PKIdusuario
             WHERE tc.status = 0";
 
         using var command = new SqlCommand(query, connection);
@@ -37,7 +40,9 @@ public class SqlServerService
             {
                 OrderId = reader.IsDBNull(0) ? 0 : reader.GetInt32(0),
                 Via = reader.IsDBNull(1) ? string.Empty : reader.GetString(1),
-                Track = reader.IsDBNull(2) ? string.Empty : reader.GetString(2)
+                Track = reader.IsDBNull(2) ? string.Empty : reader.GetString(2),
+                Email = reader.IsDBNull(3) ? string.Empty : reader.GetString(3),
+                Nome = reader.IsDBNull(4) ? string.Empty : reader.GetString(4)
             });
         }
 
