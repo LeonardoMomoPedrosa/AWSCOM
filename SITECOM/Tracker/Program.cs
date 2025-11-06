@@ -7,6 +7,7 @@ using Tracker.Services;
 
 var config = new ConfigurationBuilder()
     .AddJsonFile("appsettings.json", optional: false)
+    .AddEnvironmentVariables() // Permite usar variáveis de ambiente (ex: Correios__Key)
     .Build();
 
 Console.WriteLine("===========================================");
@@ -40,6 +41,16 @@ try
     var correiosKey = config["Correios:Key"] ?? string.Empty;
     var correiosCartaPostal = config["Correios:CartaPostal"] ?? string.Empty;
     var emailBaseUrl = config["EmailService:BaseUrl"] ?? "https://lion.aquanimal.com.br/ajax/OrderStatusAjaxHandler.ashx";
+
+    if (string.IsNullOrWhiteSpace(correiosKey))
+    {
+        throw new Exception("Chave dos Correios não configurada! Configure 'Correios:Key' no appsettings.json");
+    }
+
+    if (string.IsNullOrWhiteSpace(correiosCartaPostal))
+    {
+        throw new Exception("Cartão Postal dos Correios não configurado! Configure 'Correios:CartaPostal' no appsettings.json");
+    }
 
     dynamoService = new DynamoDBService(tableName, region);
     correiosService = new CorreiosService(correiosKey, correiosCartaPostal);
