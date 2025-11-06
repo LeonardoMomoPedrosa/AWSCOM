@@ -29,7 +29,7 @@ public class DynamoDBService
         do
         {
             response = await _client.ScanAsync(request);
-            
+
             foreach (var item in response.Items)
             {
                 items.Add(ConvertFromDynamoDBItem(item));
@@ -53,7 +53,7 @@ public class DynamoDBService
         };
 
         var response = await _client.GetItemAsync(request);
-        
+
         if (!response.Item.Any())
         {
             return null;
@@ -118,6 +118,7 @@ public class DynamoDBService
         };
     }
 
+    //Convert
     private Dictionary<string, AttributeValue> ConvertToDynamoDBItem(TrackingRecord record)
     {
         var item = new Dictionary<string, AttributeValue>
