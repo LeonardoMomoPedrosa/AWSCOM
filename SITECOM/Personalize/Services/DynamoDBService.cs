@@ -77,6 +77,20 @@ public class DynamoDBService : IDisposable
         return productIds;
     }
 
+    public async Task DeleteRecommendationAsync(string productId)
+    {
+        var request = new DeleteItemRequest
+        {
+            TableName = _tableName,
+            Key = new Dictionary<string, AttributeValue>
+            {
+                { "productId", new AttributeValue { S = productId } }
+            }
+        };
+
+        await _client.DeleteItemAsync(request);
+    }
+
     private RecommendationRecord ConvertFromDynamoDBItem(Dictionary<string, AttributeValue> item)
     {
         var record = new RecommendationRecord

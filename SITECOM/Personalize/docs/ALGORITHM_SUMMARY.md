@@ -122,47 +122,35 @@ Peso = 2^(-dias / 30)
            │
            ▼
 ┌─────────────────────────────────────────┐
-│ 5. Selecionar Top 5 para cada produto  │
+│ 5. Gerar snapshot atual ordenado        │
+│    - `productId:ID1;ID2;...`            │
 └─────────────────────────────────────────┘
            │
            ▼
 ┌─────────────────────────────────────────┐
-│ 6. Salvar no DynamoDB                  │
-│    - Um registro por produto           │
-│    - Top 5 recomendações               │
+│ 6. Comparar com snapshot anterior       │
+│    - Identificar produtos alterados     │
+└─────────────────────────────────────────┘
+           │
+           ▼
+┌─────────────────────────────────────────┐
+│ 7. Atualizar DynamoDB                   │
+│    - Upsert apenas para itens alterados │
+│    - Remover itens sem recomendações    │
+└─────────────────────────────────────────┘
+           │
+           ▼
+┌─────────────────────────────────────────┐
+│ 8. Salvar snapshot e gerar relatório    │
 └─────────────────────────────────────────┘
 ```
 
-### Execuções Semanais (Delta)
+### Snapshot Incremental
 
-```
-┌─────────────────────────────────────────┐
-│ 1. Ler última data processada          │
-│    - Arquivo: last_processed_date.txt  │
-└─────────────────────────────────────────┘
-           │
-           ▼
-┌─────────────────────────────────────────┐
-│ 2. Buscar apenas compras NOVAS         │
-│    - Desde última execução             │
-│    - Margem de segurança: 60 minutos   │
-│    - Processa apenas dados novos       │
-└─────────────────────────────────────────┘
-           │
-           ▼
-┌─────────────────────────────────────────┐
-│ 3. Recalcular recomendações            │
-│    - Apenas para produtos novos        │
-│    - Mesmo processo da primeira exec.  │
-└─────────────────────────────────────────┘
-           │
-           ▼
-┌─────────────────────────────────────────┐
-│ 4. Atualizar DynamoDB                  │
-│    - Upsert (atualiza ou insere)       │
-│    - Salvar nova data                  │
-└─────────────────────────────────────────┘
-```
+- Resultado atual (IDs ordenados) é comparado ao snapshot anterior.
+- Apenas produtos com linhas diferentes sofrem upsert ou remoção.
+- O snapshot é salvo de maneira atômica e usado como referência para a próxima execução.
+- Um relatório com tempos e estatísticas é enviado por e-mail (quando configurado).
 
 ---
 

@@ -49,10 +49,9 @@ Personalize/
   "Personalization": {
     "TopRecommendations": 5,
     "TimeDecayHalfLifeDays": 730,
-    "SafetyMarginMinutes": 60,
-    "FirstRun": true,
-    "LastProcessedDateFile": "last_processed_date.txt",
-    "ExcludedProductIds": [1354]
+    "ExcludedProductIds": [1354],
+    "SnapshotFilePath": "personalize_snapshot.txt",
+    "ReportEmail": "pedrosa.leonardo@gmail.com"
   }
 }
 ```
@@ -61,10 +60,17 @@ Personalize/
 
 - **TopRecommendations**: Número de produtos recomendados por produto (padrão: 5)
 - **TimeDecayHalfLifeDays**: Meia-vida para decaimento temporal em dias (padrão: 730 ≈ 2 anos)
-- **SafetyMarginMinutes**: Margem de segurança em minutos para processamento incremental (padrão: 60)
-- **FirstRun**: `true` para primeira execução (processa todo histórico), `false` para execuções incrementais
-- **LastProcessedDateFile**: Arquivo para armazenar última data processada
 - **ExcludedProductIds**: Lista de IDs de produtos que devem ser ignorados (padrão: `[1354]`)
+- **SnapshotFilePath**: Caminho do arquivo texto que armazena o snapshot das recomendações
+- **ReportEmail**: E-mail que receberá o relatório de execução
+- **SES:FromEmail / SES:Region** (opcionais): remetente e região usados pelo Amazon SES para envio do relatório. Se não informados, o job tenta usar `ReportEmail` como remetente e a mesma região do DynamoDB.
+
+### Snapshot e Relatório
+
+- A cada execução o job calcula todas as recomendações (histórico completo), gera um snapshot ordenado (`productId:ID1;ID2;...`) e o salva em `SnapshotFilePath`.
+- O snapshot anterior é carregado e comparado com o atual; apenas os produtos cujas linhas mudaram são sincronizados com o DynamoDB.
+- O snapshot é gravado de forma atômica (`arquivo.tmp` → rename), evitando arquivos corrompidos em caso de falha.
+- Um relatório com tempos por etapa e estatísticas (produtos alterados, upserts, remoções) é escrito no log e enviado por e-mail para `ReportEmail` (via Amazon SES), quando configurado.
 
 ## Algoritmo de Recomendação
 
@@ -110,18 +116,17 @@ weight = 2^(-daysSincePurchase / halfLifeDays)
 
 ## Execução
 
-### Primeira execução (processa todo histórico):
+### Execução manual
 
-1. Configure `Personalization:FirstRun` como `true` no `appsettings.json`
-2. Execute:
-   ```bash
-   dotnet Personalize.dll
-   ```
+```bash
+dotnet Personalize.dll
+```
 
-### Execuções semanais (delta):
+O job gera/atualiza o snapshot (`SnapshotFilePath`) e sincroniza apenas os produtos cujas recomendações mudaram. Ao final, registra os tempos por etapa no log e envia o relatório por e-mail (quando configurado).
 
-1. Configure `Personalization:FirstRun` como `false` no `appsettings.json`
-2. Configure crontab (exemplo: toda segunda-feira às 2h):
+### Execução agendada
+
+Configure o crontab (exemplo: toda segunda-feira às 2h):
    ```bash
    0 2 * * 1 cd ~/Personalize && ~/.dotnet/dotnet Personalize.dll >> ~/Personalize/personalize.log 2>&1
    ```
@@ -165,7 +170,7 @@ O sistema gera logs detalhados sobre:
 
 ## Notas
 
-- O sistema processa apenas compras com `status > 0`
-- Recomendações são atualizadas (upsert) no DynamoDB
-- O arquivo de estado (`last_processed_date.txt`) armazena a última data processada para execuções incrementais
+- O sistema processa apenas compras com `status = 'V'`.
+- Recomendações são sincronizadas seletivamente: somente produtos com mudanças entre snapshots sofrem upsert/remoção no DynamoDB.
+- O snapshot (`SnapshotFilePath`) é reescrito a cada execução e serve como base para detectar alterações futuras.
 

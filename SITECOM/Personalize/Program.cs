@@ -5,7 +5,10 @@ using Personalize.Models;
 using Personalize.Services;
 using System.Text.Json;
 using System.Collections.Generic;
+using System.Diagnostics;
+using System.IO;
 using System.Linq;
+using System.Text;
 
 var config = new ConfigurationBuilder()
     .AddJsonFile("appsettings.json", optional: false)
@@ -20,7 +23,6 @@ Console.WriteLine("===========================================");
 DynamoDBService? dynamoService = null;
 SqlServerService? sqlService = null;
 PersonalizationService? personalizationService = null;
-ExecutionStateService? stateService = null;
 
 try
 {
@@ -42,18 +44,28 @@ try
     var region = config["DynamoDB:Region"] ?? "us-east-1";
     var topRecommendations = int.Parse(config["Personalization:TopRecommendations"] ?? "5");
     var timeDecayHalfLifeDays = double.Parse(config["Personalization:TimeDecayHalfLifeDays"] ?? "30");
-    var safetyMarginMinutes = int.Parse(config["Personalization:SafetyMarginMinutes"] ?? "60");
-    var stateFilePath = config["Personalization:LastProcessedDateFile"] ?? "last_processed_date.txt";
-    var isFirstRun = config["Personalization:FirstRun"]?.Equals("true", StringComparison.OrdinalIgnoreCase) == true;
     var excludedProductIds = config.GetSection("Personalization:ExcludedProductIds").Get<int[]>() ?? Array.Empty<int>();
+    var snapshotFilePath = config["Personalization:SnapshotFilePath"] ?? "personalize_snapshot.txt";
+    var reportEmail = config["Personalization:ReportEmail"] ?? string.Empty;
+    var reportEmailFrom = config["SES:FromEmail"] ?? reportEmail;
+    var reportEmailRegion = config["SES:Region"] ?? region;
+
     var excludedProductIdsSet = excludedProductIds.Length > 0
         ? excludedProductIds.ToHashSet()
         : new HashSet<int>();
+    var timings = new List<(string Step, TimeSpan Duration)>();
+    var stepWatch = Stopwatch.StartNew();
+    var totalWatch = Stopwatch.StartNew();
+
+    void MarkStep(string step)
+    {
+        timings.Add((step, stepWatch.Elapsed));
+        stepWatch.Restart();
+    }
 
     dynamoService = new DynamoDBService(tableName, region);
     sqlService = new SqlServerService(connectionString);
     personalizationService = new PersonalizationService(topRecommendations, timeDecayHalfLifeDays);
-    stateService = new ExecutionStateService(stateFilePath);
 
     Console.WriteLine($"   📊 Tabela DynamoDB: {tableName}");
     Console.WriteLine($"   🌍 Região: {region}");
@@ -63,42 +75,18 @@ try
     {
         Console.WriteLine($"   🚫 Produtos excluídos (IDs): {string.Join(", ", excludedProductIdsSet)}");
     }
+    Console.WriteLine($"   🗂️  Snapshot: {snapshotFilePath}");
+    if (!string.IsNullOrWhiteSpace(reportEmail))
+    {
+        Console.WriteLine($"   📧 Relatório: {reportEmail}");
+    }
     Console.WriteLine("✅ Serviços inicializados");
+    MarkStep("Inicialização de serviços");
 
-    // 3. Determinar data inicial para busca
-    Console.WriteLine("\n[STEP 3] Determinando período de processamento...");
-    DateTime? fromDate = null;
-
-    if (isFirstRun)
-    {
-        Console.WriteLine("   ℹ️  Primeira execução: processando todo o histórico");
-    }
-    else
-    {
-        var lastProcessedDate = await stateService.GetLastProcessedDateAsync();
-        if (lastProcessedDate.HasValue)
-        {
-            // Processar desde a última data processada, com pequena margem de segurança (minutos)
-            // para cobrir possíveis atrasos em inserções de dados no banco
-            fromDate = lastProcessedDate.Value.AddMinutes(-safetyMarginMinutes);
-            Console.WriteLine($"   📅 Última execução: {lastProcessedDate.Value:yyyy-MM-dd HH:mm:ss}");
-            Console.WriteLine($"   📅 Margem de segurança: {safetyMarginMinutes} minutos");
-            Console.WriteLine($"   📅 Processando desde: {fromDate.Value:yyyy-MM-dd HH:mm:ss}");
-        }
-        else
-        {
-            Console.WriteLine("   ⚠️  Arquivo de estado não encontrado. Processando todo o histórico.");
-        }
-    }
-
-    // 4. Buscar dados de compras
-    Console.WriteLine("\n[STEP 4] Buscando dados de compras do SQL Server...");
+    // 3. Buscar dados de compras (histórico completo)
+    Console.WriteLine("\n[STEP 3] Buscando dados de compras do SQL Server (histórico completo)...");
     Console.WriteLine("   🔍 Filtros: status = 'V' (enviados)");
-    if (fromDate.HasValue)
-    {
-        Console.WriteLine($"   🔍 Filtro incremental: COALESCE(dataMdSt, data) >= {fromDate.Value:yyyy-MM-dd HH:mm:ss}");
-    }
-    var purchases = await sqlService.GetPurchasesAsync(fromDate);
+    var purchases = await sqlService.GetPurchasesAsync(null);
     if (excludedProductIdsSet.Count > 0)
     {
         foreach (var purchase in purchases)
@@ -113,6 +101,7 @@ try
             .ToList();
     }
     Console.WriteLine($"   📊 Total de compras encontradas: {purchases.Count}");
+    MarkStep("Busca SQL");
 
     if (purchases.Count == 0)
     {
@@ -153,67 +142,178 @@ try
     }
 
     Console.WriteLine($"   ✅ Recomendações calculadas para {recommendations.Count} produtos (após exclusões)");
+    MarkStep("Cálculo de recomendações");
 
-    // 6. Salvar/atualizar no DynamoDB
-    Console.WriteLine("\n[STEP 6] Salvando recomendações no DynamoDB...");
-    var savedCount = 0;
-    var updatedCount = 0;
+    // 6. Carregar snapshot anterior
+    Console.WriteLine("\n[STEP 6] Carregando snapshot anterior...");
+    var previousSnapshot = await LoadSnapshotAsync(snapshotFilePath);
+    Console.WriteLine($"   📄 Linhas encontradas: {previousSnapshot.Count}");
+    MarkStep("Leitura snapshot anterior");
+
+    // 7. Preparar snapshot atual e diff
+    Console.WriteLine("\n[STEP 7] Preparando snapshot atual e realizando diff...");
+    var allProductIds = recommendations.Keys
+        .Union(purchases.SelectMany(p => p.Products).Select(pp => pp.IdProduto))
+        .Union(previousSnapshot.Keys)
+        .Distinct()
+        .OrderBy(id => id)
+        .ToList();
+
+    var currentSnapshotMap = new Dictionary<int, string>(allProductIds.Count);
+    var currentSnapshotLines = new List<string>(allProductIds.Count);
+
+    foreach (var productId in allProductIds)
+    {
+        var orderedRecommendedIds = recommendations.TryGetValue(productId, out var recList) && recList.Count > 0
+            ? recList.Select(r => r.ProductId).OrderBy(id => id).ToList()
+            : new List<int>();
+
+        var snapshotLine = orderedRecommendedIds.Count > 0
+            ? $"{productId}:{string.Join(';', orderedRecommendedIds)}"
+            : $"{productId}:";
+
+        currentSnapshotMap[productId] = snapshotLine;
+        currentSnapshotLines.Add(snapshotLine);
+    }
+
+    MarkStep("Preparação snapshot atual");
+
+    var changedProductIds = new HashSet<int>();
+    foreach (var productId in allProductIds)
+    {
+        var currentLine = currentSnapshotMap[productId];
+        previousSnapshot.TryGetValue(productId, out var previousLine);
+
+        if (!string.Equals(currentLine, previousLine, StringComparison.Ordinal))
+        {
+            changedProductIds.Add(productId);
+        }
+    }
+
+    var unchangedCount = allProductIds.Count - changedProductIds.Count;
+    Console.WriteLine($"   📈 Produtos avaliados: {allProductIds.Count}");
+    Console.WriteLine($"   🔄 Produtos alterados: {changedProductIds.Count}");
+    Console.WriteLine($"   💤 Sem mudanças: {unchangedCount}");
+    MarkStep("Diff snapshot");
+
+    // 8. Atualizar DynamoDB somente quando necessário
+    Console.WriteLine("\n[STEP 8] Sincronizando alterações com DynamoDB...");
+    var upsertCount = 0;
+    var deleteCount = 0;
     var errorCount = 0;
 
-    foreach (var (productId, recommendedProducts) in recommendations)
+    if (changedProductIds.Count > 0)
+    {
+        foreach (var productId in changedProductIds.OrderBy(id => id))
+        {
+            try
+            {
+                if (recommendations.TryGetValue(productId, out var recList) && recList.Count > 0)
+                {
+                    var record = new RecommendationRecord
+                    {
+                        ProductId = productId.ToString(),
+                        RecommendedProducts = recList,
+                        LastUpdated = DateTime.UtcNow
+                    };
+
+                    await dynamoService.PutRecommendationAsync(record);
+                    upsertCount++;
+                }
+                else
+                {
+                    await dynamoService.DeleteRecommendationAsync(productId.ToString());
+                    deleteCount++;
+                }
+            }
+            catch (Exception ex)
+            {
+                errorCount++;
+                Console.WriteLine($"   ❌ Erro ao sincronizar produto {productId}: {ex.Message}");
+            }
+        }
+    }
+    else
+    {
+        Console.WriteLine("   ℹ️  Nenhuma alteração identificada. DynamoDB inalterado.");
+    }
+
+    Console.WriteLine($"   ✅ Upserts: {upsertCount}");
+    Console.WriteLine($"   🗑️  Remoções: {deleteCount}");
+    Console.WriteLine($"   ⚠️  Erros: {errorCount}");
+    MarkStep("Atualização DynamoDB");
+
+    // 9. Persistir snapshot atualizado
+    Console.WriteLine("\n[STEP 9] Persistindo snapshot atualizado...");
+    await WriteSnapshotAsync(snapshotFilePath, currentSnapshotLines);
+    Console.WriteLine("   ✅ Snapshot salvo com sucesso");
+    MarkStep("Persistência snapshot");
+
+    // 10. Gerar relatório e enviar e-mail
+    Console.WriteLine("\n[STEP 10] Gerando relatório de execução...");
+    totalWatch.Stop();
+    var reportBuilder = new StringBuilder();
+    var executionEnd = DateTime.Now;
+
+    reportBuilder.AppendLine("Resumo da execução do Personalize");
+    reportBuilder.AppendLine($"Início: {executionEnd - totalWatch.Elapsed:yyyy-MM-dd HH:mm:ss}");
+    reportBuilder.AppendLine($"Término: {executionEnd:yyyy-MM-dd HH:mm:ss}");
+    reportBuilder.AppendLine($"Duração total: {totalWatch.Elapsed}");
+    reportBuilder.AppendLine();
+    reportBuilder.AppendLine("Tempos por etapa:");
+    foreach (var (step, duration) in timings)
+    {
+        reportBuilder.AppendLine($"- {step}: {duration}");
+    }
+    reportBuilder.AppendLine();
+    reportBuilder.AppendLine("Estatísticas:");
+    reportBuilder.AppendLine($"- Compras processadas: {purchases.Count}");
+    reportBuilder.AppendLine($"- Produtos avaliados: {allProductIds.Count}");
+    reportBuilder.AppendLine($"- Produtos alterados: {changedProductIds.Count}");
+    reportBuilder.AppendLine($"- Produtos sem mudança: {unchangedCount}");
+    reportBuilder.AppendLine($"- Upserts no DynamoDB: {upsertCount}");
+    reportBuilder.AppendLine($"- Remoções no DynamoDB: {deleteCount}");
+    reportBuilder.AppendLine($"- Erros no DynamoDB: {errorCount}");
+    reportBuilder.AppendLine();
+    reportBuilder.AppendLine($"Snapshot: {snapshotFilePath}");
+
+    var reportText = reportBuilder.ToString();
+    Console.WriteLine(reportText);
+
+    var emailSent = false;
+    if (!string.IsNullOrWhiteSpace(reportEmail) && !string.IsNullOrWhiteSpace(reportEmailFrom))
     {
         try
         {
-            var existingRecord = await dynamoService.GetRecommendationAsync(productId.ToString());
-
-            var record = new RecommendationRecord
-            {
-                ProductId = productId.ToString(),
-                RecommendedProducts = recommendedProducts,
-                LastUpdated = DateTime.UtcNow
-            };
-
-            await dynamoService.PutRecommendationAsync(record);
-
-            if (existingRecord != null)
-            {
-                updatedCount++;
-            }
-            else
-            {
-                savedCount++;
-            }
-
-            if ((savedCount + updatedCount) % 100 == 0)
-            {
-                Console.WriteLine($"   📊 Processados: {savedCount + updatedCount} produtos...");
-            }
+            using var emailService = new EmailService(reportEmailFrom, reportEmailRegion);
+            emailSent = await emailService.SendReportAsync(
+                reportEmail,
+                $"Personalize - resumo {executionEnd:yyyy-MM-dd HH:mm}",
+                reportText);
         }
         catch (Exception ex)
         {
-            errorCount++;
-            Console.WriteLine($"   ❌ Erro ao salvar produto {productId}: {ex.Message}");
+            Console.WriteLine($"   ⚠️  Falha ao enviar e-mail de relatório: {ex.Message}");
         }
     }
-
-    Console.WriteLine($"\n   📊 Resumo:");
-    Console.WriteLine($"      - Novos registros: {savedCount}");
-    Console.WriteLine($"      - Atualizados: {updatedCount}");
-    Console.WriteLine($"      - Erros: {errorCount}");
-
-    // 7. Salvar data de última execução
-    Console.WriteLine("\n[STEP 7] Salvando estado da execução...");
-    await stateService.SaveLastProcessedDateAsync(DateTime.UtcNow);
-
-    // 8. Se não era primeira execução, marcar como false no config para próximas execuções
-    if (isFirstRun)
+    else if (!string.IsNullOrWhiteSpace(reportEmail))
     {
-        Console.WriteLine("\n   ℹ️  Primeira execução concluída. Configure 'Personalization:FirstRun' como 'false' no appsettings.json para próximas execuções.");
+        Console.WriteLine("   ⚠️  Relatório não enviado por e-mail: remetente não configurado.");
     }
+
+    if (emailSent)
+    {
+        Console.WriteLine("   ✅ Relatório enviado por e-mail.");
+    }
+    else if (!string.IsNullOrWhiteSpace(reportEmail))
+    {
+        Console.WriteLine("   ⚠️  Relatório não foi enviado por e-mail (verifique logs).");
+    }
+    MarkStep("Envio de relatório");
 
     Console.WriteLine("\n===========================================");
     Console.WriteLine("=== CONCLUÍDO COM SUCESSO ===");
-    Console.WriteLine($"Finalizado em: {DateTime.Now:yyyy-MM-dd HH:mm:ss}");
+    Console.WriteLine($"Finalizado em: {executionEnd:yyyy-MM-dd HH:mm:ss}");
     Console.WriteLine("===========================================");
     return 0;
 }
@@ -258,5 +358,53 @@ static async Task<string> GetConnectionStringFromSecretsManager(string secretArn
 
     Console.WriteLine("   ✅ Secret obtido com sucesso");
     return secret["lambda_ecom_db"];
+}
+
+static async Task<Dictionary<int, string>> LoadSnapshotAsync(string path)
+{
+    var snapshot = new Dictionary<int, string>();
+
+    if (!File.Exists(path))
+    {
+        return snapshot;
+    }
+
+    using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
+    using var reader = new StreamReader(stream, Encoding.UTF8);
+
+    while (await reader.ReadLineAsync() is { } line)
+    {
+        var trimmed = line.Trim();
+        if (string.IsNullOrEmpty(trimmed))
+        {
+            continue;
+        }
+
+        var separatorIndex = trimmed.IndexOf(':');
+        if (separatorIndex <= 0)
+        {
+            continue;
+        }
+
+        if (int.TryParse(trimmed.AsSpan(0, separatorIndex), out var productId))
+        {
+            snapshot[productId] = trimmed;
+        }
+    }
+
+    return snapshot;
+}
+
+static async Task WriteSnapshotAsync(string path, IEnumerable<string> lines)
+{
+    var directory = Path.GetDirectoryName(path);
+    if (!string.IsNullOrEmpty(directory) && !Directory.Exists(directory))
+    {
+        Directory.CreateDirectory(directory);
+    }
+
+    var tempPath = path + ".tmp";
+    await File.WriteAllLinesAsync(tempPath, lines, Encoding.UTF8);
+    File.Move(tempPath, path, true);
 }
 

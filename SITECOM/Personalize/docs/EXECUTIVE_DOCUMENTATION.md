@@ -10,7 +10,7 @@ Gerar listas personalizadas de recomendações de produtos (top 5) para cada pro
 
 ### 1.2 Características Principais
 
-- **Processamento incremental**: Primeira execução processa todo o histórico, execuções subsequentes processam apenas novos dados (delta)
+- **Snapshot incremental**: Toda execução reconstrói as recomendações com dados completos, difere do snapshot anterior e atualiza o DynamoDB apenas quando há mudança
 - **Execução agendada**: Roda semanalmente via crontab
 - **Armazenamento escalável**: Utiliza AWS DynamoDB para armazenar recomendações
 - **Algoritmo robusto**: Combina múltiplas métricas estatísticas para maior precisão
@@ -37,15 +37,15 @@ Gerar listas personalizadas de recomendações de produtos (top 5) para cada pro
 │  │          Fluxo de Processamento                      │  │
 │  │  1. Buscar dados do SQL Server                       │  │
 │  │  2. Calcular recomendações (SIMS)                    │  │
-│  │  3. Salvar no DynamoDB                               │  │
+│  │  3. Comparar snapshot e atualizar DynamoDB           │  │
 │  └──────────────────────────────────────────────────────┘  │
 └─────────────────────────────────────────────────────────────┘
          │                    │                    │
          ▼                    ▼                    ▼
 ┌──────────────┐    ┌──────────────┐    ┌──────────────┐
 │ SQL Server   │    │ DynamoDB     │    │ File System  │
-│ (tbCompra,   │    │ (dynamo-     │    │ (Estado de   │
-│  tbProdutos) │    │  personalize)│    │  execução)   │
+│ (tbCompra,   │    │ (dynamo-     │    │ (Snapshot de │
+│  tbProdutos) │    │  personalize)│    │  recomendações)│
 └──────────────┘    └──────────────┘    └──────────────┘
 ```
 
@@ -53,8 +53,8 @@ Gerar listas personalizadas de recomendações de produtos (top 5) para cada pro
 
 1. **SqlServerService**: Extrai dados de compras do banco de dados
 2. **PersonalizationService**: Implementa o algoritmo SIMS de recomendação
-3. **DynamoDBService**: Armazena e atualiza recomendações no DynamoDB
-4. **ExecutionStateService**: Gerencia estado de execução (primeira execução vs delta)
+3. **DynamoDBService**: Armazena, atualiza e remove recomendações no DynamoDB
+4. **EmailService**: Envia relatórios de execução via Amazon SES
 
 ---
 
@@ -238,89 +238,60 @@ O decaimento temporal é aplicado em:
 
 ## 5. Fluxo de Processamento
 
-### 5.1 Primeira Execução
+### Visão Geral
 
 ```
 ┌─────────────────────────────────────────────────────────┐
 │ 1. Inicialização                                        │
-│    - Carrega configurações                              │
-│    - Conecta ao SQL Server e DynamoDB                   │
+│    - Carrega config (snapshot, e-mail, exclusões)       │
+│    - Conecta ao SQL Server, DynamoDB e SES              │
 └─────────────────────────────────────────────────────────┘
                         │
                         ▼
 ┌─────────────────────────────────────────────────────────┐
-│ 2. Determinação do Período                              │
-│    - FirstRun = true                                    │
-│    - fromDate = null (processa todo histórico)          │
+│ 2. Coleta de Dados                                      │
+│    - Consulta FULL no SQL Server (status = 'V')         │
+│    - Aplica exclusões de produtos                       │
 └─────────────────────────────────────────────────────────┘
                         │
                         ▼
 ┌─────────────────────────────────────────────────────────┐
-│ 3. Extração de Dados                                    │
-│    - Busca TODAS as compras do SQL Server               │
-│    - Filtra compras com status > 0                      │
-│    - Agrupa produtos por compra                         │
+│ 3. Processamento SIMS                                   │
+│    - Calcula co-compras com decaimento temporal         │
+│    - Gera top N recomendações por produto               │
 └─────────────────────────────────────────────────────────┘
                         │
                         ▼
 ┌─────────────────────────────────────────────────────────┐
-│ 4. Cálculo de Recomendações                             │
-│    - Constrói matriz de co-compras (com decaimento)     │
-│    - Calcula estatísticas de produtos                   │
-│    - Calcula escores (COUNT, LIFT, COSINE)              │
-│    - Normaliza e combina escores                        │
-│    - Seleciona top 5 para cada produto                  │
+│ 4. Snapshot                                             │
+│    - Carrega snapshot anterior (arquivo texto)          │
+│    - Gera snapshot atual ordenado                       │
+│    - Compara linha a linha                              │
 └─────────────────────────────────────────────────────────┘
                         │
                         ▼
 ┌─────────────────────────────────────────────────────────┐
-│ 5. Armazenamento no DynamoDB                            │
-│    - Para cada produto:                                 │
-│      * Se existe: atualiza (upsert)                     │
-│      * Se não existe: insere                            │
-│    - Salva data de última execução                      │
+│ 5. Sincronização                                        │
+│    - Atualiza/Remove do DynamoDB somente os produtos    │
+│      cujas recomendações mudaram                       │
+│    - Persistência atômica do novo snapshot              │
+└─────────────────────────────────────────────────────────┘
+                        │
+                        ▼
+┌─────────────────────────────────────────────────────────┐
+│ 6. Observabilidade                                      │
+│    - Registra tempos por etapa                          │
+│    - Envia relatório por e-mail (SES)                   │
 └─────────────────────────────────────────────────────────┘
 ```
 
-### 5.2 Execuções Semanais (Delta)
+### Snapshot Incremental
 
-```
-┌─────────────────────────────────────────────────────────┐
-│ 1. Inicialização                                        │
-│    - FirstRun = false                                   │
-└─────────────────────────────────────────────────────────┘
-                        │
-                        ▼
-┌─────────────────────────────────────────────────────────┐
-│ 2. Determinação do Período                              │
-│    - Lê última data processada do arquivo               │
-│    - fromDate = últimaData - 60 minutos (margem pequena)│
-│    - Processa apenas dados novos desde última execução  │
-└─────────────────────────────────────────────────────────┘
-                        │
-                        ▼
-┌─────────────────────────────────────────────────────────┐
-│ 3. Extração de Dados                                    │
-│    - Busca apenas compras desde fromDate                │
-│    - Processa apenas dados novos                        │
-└─────────────────────────────────────────────────────────┘
-                        │
-                        ▼
-┌─────────────────────────────────────────────────────────┐
-│ 4. Cálculo de Recomendações                             │
-│    - Mesmo processo da primeira execução                │
-│    - Mas apenas com dados novos                         │
-└─────────────────────────────────────────────────────────┘
-                        │
-                        ▼
-┌─────────────────────────────────────────────────────────┐
-│ 5. Atualização no DynamoDB                              │
-│    - Recalcula recomendações apenas para produtos       │
-│      que apareceram nas compras novas                   │
-│    - Atualiza/Insere no DynamoDB                        │
-│    - Salva nova data de última execução                 │
-└─────────────────────────────────────────────────────────┘
-```
+- O snapshot é um arquivo texto (`productId:ID1;ID2;...`) com IDs ordenados.
+- Toda execução gera o snapshot completo e o compara com o anterior.
+- Somente os produtos com linhas diferentes (incluindo remoções) são sincronizados no DynamoDB.
+- A escrita do snapshot é atômica (`arquivo.tmp` → `File.Move(..., overwrite: true)`), evitando arquivos corrompidos.
+- O relatório final inclui tempos por etapa, produtos alterados, upserts, remoções e o caminho do snapshot utilizado.
 
 ---
 
@@ -344,16 +315,6 @@ O decaimento temporal é aplicado em:
 }
 ```
 
-### 6.2 Arquivo de Estado
-
-**Arquivo**: `last_processed_date.txt`
-
-**Conteúdo**: Data da última execução no formato `yyyy-MM-dd HH:mm:ss`
-
-**Uso**: Determina o período de dados a processar nas execuções incrementais.
-
----
-
 ## 7. Configurações
 
 ### 7.1 Parâmetros Principais
@@ -363,8 +324,8 @@ O decaimento temporal é aplicado em:
 | `TopRecommendations` | Número de produtos recomendados por produto | 5 |
 | `TimeDecayHalfLifeDays` | Meia-vida para decaimento temporal (dias) | 730 |
 | `ExcludedProductIds` | Lista de IDs a serem ignorados durante o processamento | [1354] |
-| `SafetyMarginMinutes` | Margem de segurança em minutos para processamento incremental | 60 |
-| `FirstRun` | Primeira execução (true) ou incremental (false) | true |
+| `SnapshotFilePath` | Caminho do arquivo de snapshot das recomendações (texto) | personalize_snapshot.txt |
+| `ReportEmail` | Endereço para envio do relatório de execução | pedrosa.leonardo@gmail.com |
 
 ### 7.2 Ajustes Recomendados
 
@@ -377,8 +338,7 @@ O decaimento temporal é aplicado em:
 - Aumentar `TimeDecayHalfLifeDays` para valores ainda maiores (ex.: > 730) quando mudanças são muito raras
 
 **Para atualizações mais frequentes**:
-- Executar job mais frequentemente (ex: diariamente)
-- Ajustar `SafetyMarginMinutes` conforme necessário (padrão: 60 minutos)
+- Executar o job com maior frequência (ex.: diariamente) para capturar novas co-compras rapidamente
 
 ---
 
@@ -393,15 +353,15 @@ O decaimento temporal é aplicado em:
 
 ### 8.2 Otimizações Implementadas
 
-1. **Processamento incremental**: Apenas novos dados são processados nas execuções semanais
-2. **Matriz esparsa**: Apenas produtos co-comprados são armazenados
-3. **Normalização eficiente**: Normalização feita em uma única passada
+1. **Snapshot incremental**: compara o resultado completo com o snapshot anterior e atualiza apenas o que mudou no DynamoDB
+2. **Matriz esparsa**: apenas produtos co-comprados são armazenados durante o cálculo
+3. **Normalização eficiente**: normalização dos escores feita em uma única passada
 
 ### 8.3 Escalabilidade
 
 - **DynamoDB**: Suporta milhões de produtos
 - **Processamento**: Pode ser distribuído se necessário
-- **Incremental**: Tempo de processamento reduzido após primeira execução
+- **Snapshot diff**: Upserts mínimos reduzem custo de escrita no DynamoDB
 
 ---
 
