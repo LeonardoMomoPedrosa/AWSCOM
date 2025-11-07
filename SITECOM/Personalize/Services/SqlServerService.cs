@@ -33,7 +33,6 @@ public class SqlServerService
                 pc.quantidade,
                 pc.PKId as ProductPurchasePKId,
                 pc.PKIdCompra,
-                pc.preco,
                 pc.nome,
                 pc.sys_creation_date,
                 pc.sys_update_date
@@ -82,10 +81,9 @@ public class SqlServerService
                 Quantidade = reader.GetInt32(8),
                 PKId = reader.GetInt32(9),
                 PKIdCompra = reader.GetInt32(10),
-                Preco = reader.GetDecimal(11),
-                Nome = reader.IsDBNull(12) ? string.Empty : reader.GetString(12),
-                SysCreationDate = reader.GetDateTime(13),
-                SysUpdateDate = reader.IsDBNull(14) ? null : reader.GetDateTime(14)
+                Nome = reader.IsDBNull(11) ? string.Empty : reader.GetString(11),
+                SysCreationDate = reader.GetDateTime(12),
+                SysUpdateDate = reader.IsDBNull(13) ? null : reader.GetDateTime(13)
             };
 
             purchases[purchaseId].Products.Add(productPurchase);

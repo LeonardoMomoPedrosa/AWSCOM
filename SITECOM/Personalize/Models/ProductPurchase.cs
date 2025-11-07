@@ -7,7 +7,6 @@ public class ProductPurchase
     public int Quantidade { get; set; }
     public int PKId { get; set; }
     public int PKIdCompra { get; set; }
-    public decimal Preco { get; set; }
     public string Nome { get; set; } = string.Empty;
     public DateTime SysCreationDate { get; set; }
     public DateTime? SysUpdateDate { get; set; }
