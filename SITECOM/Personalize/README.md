@@ -48,10 +48,11 @@ Personalize/
   },
   "Personalization": {
     "TopRecommendations": 5,
-    "TimeDecayHalfLifeDays": 30,
+    "TimeDecayHalfLifeDays": 730,
     "SafetyMarginMinutes": 60,
     "FirstRun": true,
-    "LastProcessedDateFile": "last_processed_date.txt"
+    "LastProcessedDateFile": "last_processed_date.txt",
+    "ExcludedProductIds": [1354]
   }
 }
 ```
@@ -59,10 +60,11 @@ Personalize/
 ### Parâmetros
 
 - **TopRecommendations**: Número de produtos recomendados por produto (padrão: 5)
-- **TimeDecayHalfLifeDays**: Meia-vida para decaimento temporal em dias (padrão: 30)
+- **TimeDecayHalfLifeDays**: Meia-vida para decaimento temporal em dias (padrão: 730 ≈ 2 anos)
 - **SafetyMarginMinutes**: Margem de segurança em minutos para processamento incremental (padrão: 60)
 - **FirstRun**: `true` para primeira execução (processa todo histórico), `false` para execuções incrementais
 - **LastProcessedDateFile**: Arquivo para armazenar última data processada
+- **ExcludedProductIds**: Lista de IDs de produtos que devem ser ignorados (padrão: `[1354]`)
 
 ## Algoritmo de Recomendação
 

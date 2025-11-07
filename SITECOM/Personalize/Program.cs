@@ -4,6 +4,8 @@ using Microsoft.Extensions.Configuration;
 using Personalize.Models;
 using Personalize.Services;
 using System.Text.Json;
+using System.Collections.Generic;
+using System.Linq;
 
 var config = new ConfigurationBuilder()
     .AddJsonFile("appsettings.json", optional: false)
@@ -43,6 +45,10 @@ try
     var safetyMarginMinutes = int.Parse(config["Personalization:SafetyMarginMinutes"] ?? "60");
     var stateFilePath = config["Personalization:LastProcessedDateFile"] ?? "last_processed_date.txt";
     var isFirstRun = config["Personalization:FirstRun"]?.Equals("true", StringComparison.OrdinalIgnoreCase) == true;
+    var excludedProductIds = config.GetSection("Personalization:ExcludedProductIds").Get<int[]>() ?? Array.Empty<int>();
+    var excludedProductIdsSet = excludedProductIds.Length > 0
+        ? excludedProductIds.ToHashSet()
+        : new HashSet<int>();
 
     dynamoService = new DynamoDBService(tableName, region);
     sqlService = new SqlServerService(connectionString);
@@ -53,6 +59,10 @@ try
     Console.WriteLine($"   🌍 Região: {region}");
     Console.WriteLine($"   🎯 Top recomendações: {topRecommendations}");
     Console.WriteLine($"   ⏱️  Meia-vida decaimento temporal: {timeDecayHalfLifeDays} dias");
+    if (excludedProductIdsSet.Count > 0)
+    {
+        Console.WriteLine($"   🚫 Produtos excluídos (IDs): {string.Join(", ", excludedProductIdsSet)}");
+    }
     Console.WriteLine("✅ Serviços inicializados");
 
     // 3. Determinar data inicial para busca
@@ -89,6 +99,19 @@ try
         Console.WriteLine($"   🔍 Filtro incremental: COALESCE(dataMdSt, data) >= {fromDate.Value:yyyy-MM-dd HH:mm:ss}");
     }
     var purchases = await sqlService.GetPurchasesAsync(fromDate);
+    if (excludedProductIdsSet.Count > 0)
+    {
+        foreach (var purchase in purchases)
+        {
+            purchase.Products = purchase.Products
+                .Where(pp => !excludedProductIdsSet.Contains(pp.IdProduto))
+                .ToList();
+        }
+
+        purchases = purchases
+            .Where(p => p.Products.Any())
+            .ToList();
+    }
     Console.WriteLine($"   📊 Total de compras encontradas: {purchases.Count}");
 
     if (purchases.Count == 0)
@@ -103,7 +126,33 @@ try
     // 5. Calcular recomendações
     Console.WriteLine("\n[STEP 5] Calculando recomendações (SIMS co-purchase)...");
     var recommendations = personalizationService.CalculateRecommendations(purchases);
-    Console.WriteLine($"   ✅ Recomendações calculadas para {recommendations.Count} produtos");
+
+    if (excludedProductIdsSet.Count > 0 && recommendations.Count > 0)
+    {
+        foreach (var key in recommendations.Keys.ToList())
+        {
+            if (excludedProductIdsSet.Contains(key))
+            {
+                recommendations.Remove(key);
+                continue;
+            }
+
+            var filteredList = recommendations[key]
+                .Where(r => !excludedProductIdsSet.Contains(r.ProductId))
+                .ToList();
+
+            if (filteredList.Count == 0)
+            {
+                recommendations.Remove(key);
+            }
+            else
+            {
+                recommendations[key] = filteredList;
+            }
+        }
+    }
+
+    Console.WriteLine($"   ✅ Recomendações calculadas para {recommendations.Count} produtos (após exclusões)");
 
     // 6. Salvar/atualizar no DynamoDB
     Console.WriteLine("\n[STEP 6] Salvando recomendações no DynamoDB...");

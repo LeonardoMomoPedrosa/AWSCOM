@@ -200,7 +200,7 @@ Produtos comprados recentemente têm maior relevância no cálculo de recomenda�
 
 ### 4.2 Implementação
 
-Utiliza **decaimento exponencial** com meia-vida configurável (padrão: 30 dias).
+Utiliza **decaimento exponencial** com meia-vida configurável (padrão: 730 dias ≈ 2 anos).
 
 **Fórmula**:
 ```
@@ -209,7 +209,7 @@ weight = 2^(-daysSincePurchase / halfLifeDays)
 
 **Onde**:
 - `daysSincePurchase`: Dias desde a compra até a data de referência
-- `halfLifeDays`: Meia-vida em dias (padrão: 30)
+- `halfLifeDays`: Meia-vida em dias (padrão: 730, mas o exemplo abaixo usa 30 para facilitar a visualização)
 
 ### 4.3 Exemplos
 
@@ -361,7 +361,8 @@ O decaimento temporal é aplicado em:
 | Parâmetro | Descrição | Valor Padrão |
 |-----------|-----------|--------------|
 | `TopRecommendations` | Número de produtos recomendados por produto | 5 |
-| `TimeDecayHalfLifeDays` | Meia-vida para decaimento temporal (dias) | 30 |
+| `TimeDecayHalfLifeDays` | Meia-vida para decaimento temporal (dias) | 730 |
+| `ExcludedProductIds` | Lista de IDs a serem ignorados durante o processamento | [1354] |
 | `SafetyMarginMinutes` | Margem de segurança em minutos para processamento incremental | 60 |
 | `FirstRun` | Primeira execução (true) ou incremental (false) | true |
 
@@ -369,11 +370,11 @@ O decaimento temporal é aplicado em:
 
 **Para maior precisão**:
 - Aumentar `TopRecommendations` para 10
-- Reduzir `TimeDecayHalfLifeDays` para 15-20 (tendências mais recentes)
+- Reduzir `TimeDecayHalfLifeDays` para valores menores (ex.: 90-180 dias) para reagir mais rápido a tendências
 
 **Para maior performance**:
 - Reduzir `TopRecommendations` para 3
-- Aumentar `TimeDecayHalfLifeDays` para 45-60 (menos recálculo)
+- Aumentar `TimeDecayHalfLifeDays` para valores ainda maiores (ex.: > 730) quando mudanças são muito raras
 
 **Para atualizações mais frequentes**:
 - Executar job mais frequentemente (ex: diariamente)

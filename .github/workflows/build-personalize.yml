@@ -214,11 +214,10 @@ jobs:
             
             # Verificar se appsettings.json foi extraído
             if [ ! -f "$TARGET_DIR/appsettings.json" ]; then
-              echo "⚠️ appsettings.json não encontrado no pacote! Criando um básico..."
-              printf '{\n  "ConnectionString": "",\n  "UseSecretsManager": true,\n  "SecretArn": "arn:aws:secretsmanager:us-east-1:615283740315:secret:prod/sqlserver/ecom-QABqVU",\n  "DynamoDB": {\n    "TableName": "dynamo-personalize",\n    "Region": "us-east-1"\n  },\n  "Personalization": {\n    "TopRecommendations": 5,\n    "TimeDecayHalfLifeDays": 30,\n    "SafetyMarginMinutes": 60,\n    "FirstRun": true,\n    "LastProcessedDateFile": "last_processed_date.txt"\n  }\n}' > "$TARGET_DIR/appsettings.json"
-            else
-              echo "✅ appsettings.json encontrado no pacote e será usado"
+              echo "❌ appsettings.json não encontrado no pacote! Abortando deploy."
+              exit 1
             fi
+            echo "✅ appsettings.json encontrado no pacote"
             
             # Ajustar permissões
             echo "🔐 Ajustando permissões..."
