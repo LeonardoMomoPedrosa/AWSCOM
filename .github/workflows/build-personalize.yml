@@ -49,6 +49,13 @@ jobs:
       - name: Checkout código
         uses: actions/checkout@v4
 
+      - name: Checkout do SLCOMLIB
+        uses: actions/checkout@v4
+        with:
+          repository: LeonardoMomoPedrosa/SLCOMLIB
+          token: ${{ secrets.GH_PAT }}
+          path: SLCOMLIB
+
       - name: Instalar .NET 8 SDK
         uses: actions/setup-dotnet@v4
         with:

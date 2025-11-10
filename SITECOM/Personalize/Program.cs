@@ -9,6 +9,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Text;
+using SLCOMLIB.Helpers;
 
 var config = new ConfigurationBuilder()
     .AddJsonFile("appsettings.json", optional: false)
@@ -23,6 +24,7 @@ Console.WriteLine("===========================================");
 DynamoDBService? dynamoService = null;
 SqlServerService? sqlService = null;
 PersonalizationService? personalizationService = null;
+ISiteApiService? siteApiService = null;
 
 try
 {
@@ -66,6 +68,19 @@ try
     dynamoService = new DynamoDBService(tableName, region);
     sqlService = new SqlServerService(connectionString);
     personalizationService = new PersonalizationService(topRecommendations, timeDecayHalfLifeDays);
+    
+    // Configurar SiteApiService para invalidação de cache
+    var siteApiConfig = new SiteApiConfig();
+    config.GetSection("SiteApi").Bind(siteApiConfig);
+    if (siteApiConfig.Servers.Count > 0 && !string.IsNullOrWhiteSpace(siteApiConfig.Username))
+    {
+        siteApiService = new SiteApiService(siteApiConfig);
+        Console.WriteLine($"   🔄 Cache invalidation: {siteApiConfig.Servers.Count} servidor(es) configurado(s)");
+    }
+    else
+    {
+        Console.WriteLine($"   ⚠️  Cache invalidation: não configurado (SiteApi.Servers vazio ou credenciais ausentes)");
+    }
 
     Console.WriteLine($"   📊 Tabela DynamoDB: {tableName}");
     Console.WriteLine($"   🌍 Região: {region}");
@@ -243,6 +258,70 @@ try
     Console.WriteLine($"   ⚠️  Erros: {errorCount}");
     MarkStep("Atualização DynamoDB");
 
+    // 8.5. Invalidar cache do e-commerce para produtos alterados
+    var cacheInvalidationCount = 0;
+    var cacheInvalidationSuccess = 0;
+    var cacheInvalidationFail = 0;
+    
+    if (changedProductIds.Count > 0 && siteApiService != null)
+    {
+        Console.WriteLine("\n[STEP 8.5] Invalidando cache do e-commerce...");
+        var cacheRequests = new List<CacheInvalidateRequest>();
+        
+        foreach (var productId in changedProductIds)
+        {
+            try
+            {
+                var cacheKeyObj = SiteCacheKeyUtil.GetRecomendationKey(productId);
+                var request = new CacheInvalidateRequest
+                {
+                    Region = cacheKeyObj.Region,
+                    Key = cacheKeyObj.Key,
+                    CleanRegionInd = false
+                };
+                cacheRequests.Add(request);
+                cacheInvalidationCount++;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"   ⚠️  Erro ao gerar chave de cache para produto {productId}: {ex.Message}");
+                cacheInvalidationFail++;
+            }
+        }
+        
+        if (cacheRequests.Count > 0)
+        {
+            try
+            {
+                var success = await siteApiService.InvalidateAsync(cacheRequests);
+                if (success)
+                {
+                    cacheInvalidationSuccess = cacheRequests.Count;
+                    Console.WriteLine($"   ✅ Cache invalidado para {cacheRequests.Count} produto(s)");
+                }
+                else
+                {
+                    cacheInvalidationFail += cacheRequests.Count;
+                    Console.WriteLine($"   ⚠️  Algumas invalidações de cache falharam");
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"   ❌ Erro ao invalidar cache: {ex.Message}");
+                cacheInvalidationFail += cacheRequests.Count;
+            }
+        }
+    }
+    else if (changedProductIds.Count > 0 && siteApiService == null)
+    {
+        Console.WriteLine("\n[STEP 8.5] Cache invalidation: pulado (não configurado)");
+    }
+    else
+    {
+        Console.WriteLine("\n[STEP 8.5] Cache invalidation: pulado (nenhum produto alterado)");
+    }
+    MarkStep("Invalidação de cache");
+
     // 9. Persistir snapshot atualizado
     Console.WriteLine("\n[STEP 9] Persistindo snapshot atualizado...");
     await WriteSnapshotAsync(snapshotFilePath, currentSnapshotLines);
@@ -274,6 +353,10 @@ try
     reportBuilder.AppendLine($"- Upserts no DynamoDB: {upsertCount}");
     reportBuilder.AppendLine($"- Remoções no DynamoDB: {deleteCount}");
     reportBuilder.AppendLine($"- Erros no DynamoDB: {errorCount}");
+    if (cacheInvalidationCount > 0)
+    {
+        reportBuilder.AppendLine($"- Invalidações de cache: {cacheInvalidationCount} (sucesso: {cacheInvalidationSuccess}, falhas: {cacheInvalidationFail})");
+    }
     reportBuilder.AppendLine();
     reportBuilder.AppendLine($"Snapshot: {snapshotFilePath}");
 
@@ -337,6 +420,10 @@ catch (Exception ex)
 finally
 {
     dynamoService?.Dispose();
+    if (siteApiService is IDisposable disposable)
+    {
+        disposable.Dispose();
+    }
 }
 
 // ===== FUNÇÕES =====
