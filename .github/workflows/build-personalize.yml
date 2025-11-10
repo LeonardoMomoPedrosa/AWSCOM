@@ -211,13 +211,30 @@ jobs:
             echo "📁 Preparando diretório $TARGET_DIR..."
             mkdir -p "$TARGET_DIR"
             
-            # Limpar arquivos antigos
-            echo "🧹 Limpando arquivos antigos..."
-            rm -rf "$TARGET_DIR"/*
+            # Fazer backup do personalize_snapshot.txt se existir
+            SNAPSHOT_FILE="$TARGET_DIR/personalize_snapshot.txt"
+            SNAPSHOT_BACKUP="/tmp/personalize_snapshot_backup_$(date +%Y%m%d-%H%M%S).txt"
+            if [ -f "$SNAPSHOT_FILE" ]; then
+              echo "💾 Fazendo backup do personalize_snapshot.txt..."
+              cp "$SNAPSHOT_FILE" "$SNAPSHOT_BACKUP"
+              echo "✅ Backup criado: $SNAPSHOT_BACKUP"
+            fi
+            
+            # Limpar arquivos antigos (exceto personalize_snapshot.txt)
+            echo "🧹 Limpando arquivos antigos (preservando personalize_snapshot.txt)..."
+            find "$TARGET_DIR" -mindepth 1 -maxdepth 1 ! -name "personalize_snapshot.txt" -exec rm -rf {} +
             
             # Extrair novo pacote
             echo "📦 Extraindo pacote..."
             unzip -o "$DEPLOY_ZIP" -d "$TARGET_DIR"
+            
+            # Restaurar personalize_snapshot.txt se existia antes
+            if [ -f "$SNAPSHOT_BACKUP" ]; then
+              echo "💾 Restaurando personalize_snapshot.txt..."
+              cp "$SNAPSHOT_BACKUP" "$SNAPSHOT_FILE"
+              rm -f "$SNAPSHOT_BACKUP"
+              echo "✅ personalize_snapshot.txt restaurado"
+            fi
             
             # Verificar se appsettings.json foi extraído
             if [ ! -f "$TARGET_DIR/appsettings.json" ]; then
