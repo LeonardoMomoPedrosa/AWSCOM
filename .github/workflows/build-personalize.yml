@@ -63,15 +63,15 @@ jobs:
 
       - name: Restaurar dependências
         working-directory: SITECOM/Personalize
-        run: dotnet restore Personalize.csproj
+        run: dotnet restore Personalize.csproj /p:SLCOMLIBPath=../../SLCOMLIB/SLCOMLIB.csproj
 
       - name: Compilar o projeto
         working-directory: SITECOM/Personalize
-        run: dotnet build Personalize.csproj --configuration Release --no-restore
+        run: dotnet build Personalize.csproj --configuration Release --no-restore /p:SLCOMLIBPath=../../SLCOMLIB/SLCOMLIB.csproj
 
       - name: Publicar (gera o executável pronto para Linux)
         working-directory: SITECOM/Personalize
-        run: dotnet publish Personalize.csproj -c Release -r linux-x64 -o ../../publish-personalize --self-contained false
+        run: dotnet publish Personalize.csproj -c Release -r linux-x64 -o ../../publish-personalize --self-contained false /p:SLCOMLIBPath=../../SLCOMLIB/SLCOMLIB.csproj
 
       - name: Verificar se appsettings.json foi copiado
         run: |

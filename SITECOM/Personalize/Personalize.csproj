@@ -18,8 +18,12 @@
     <PackageReference Include="Microsoft.Extensions.Configuration.Binder" Version="8.0.1" />
   </ItemGroup>
 
+  <PropertyGroup>
+    <SLCOMLIBPath Condition="'$(SLCOMLIBPath)' == ''">..\..\..\SLCOMLIB\SLCOMLIB.csproj</SLCOMLIBPath>
+  </PropertyGroup>
+  
   <ItemGroup>
-    <ProjectReference Include="..\..\..\SLCOMLIB\SLCOMLIB.csproj" />
+    <ProjectReference Include="$(SLCOMLIBPath)" />
   </ItemGroup>
 
   <ItemGroup>
