@@ -500,6 +500,138 @@ public class EmailService
         return html;
     }
 
+    public async Task<bool> SendBuslogEmailAsync(string toEmail, string nomeCliente)
+    {
+        try
+        {
+            if (string.IsNullOrWhiteSpace(toEmail))
+            {
+                Console.WriteLine($"      ⚠️  Email vazio para {nomeCliente}. Pulando...");
+                return false;
+            }
+
+            var htmlBody = GenerateBuslogEmailHtml();
+
+            var destination = new Destination
+            {
+                ToAddresses = new List<string> { toEmail }
+            };
+
+            // Adicionar CCO (cópia oculta) se configurado
+            if (!string.IsNullOrWhiteSpace(_bccEmail))
+            {
+                destination.BccAddresses = new List<string> { _bccEmail };
+            }
+
+            var request = new SendEmailRequest
+            {
+                Source = _fromEmail,
+                Destination = destination,
+                Message = new Message
+                {
+                    Subject = new Content("Rastreamento Disponível - Buslog"),
+                    Body = new Body
+                    {
+                        Html = new Content { Charset = "UTF-8", Data = htmlBody }
+                    }
+                }
+            };
+
+            var response = await _sesClient.SendEmailAsync(request);
+            Console.WriteLine($"      ✅ Email enviado para {toEmail} (MessageId: {response.MessageId})");
+            return true;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"      ❌ Erro ao enviar email para {toEmail}: {ex.Message}");
+            return false;
+        }
+    }
+
+    private string GenerateBuslogEmailHtml()
+    {
+        var html = $@"
+<!DOCTYPE html>
+<html lang=""pt-BR"">
+<head>
+    <meta charset=""UTF-8"">
+    <meta name=""viewport"" content=""width=device-width, initial-scale=1.0"">
+    <title>Rastreamento Disponível</title>
+    <style>
+        body {{
+            font-family: Arial, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f4f4f4;
+        }}
+        .container {{
+            background-color: #ffffff;
+            border-radius: 8px;
+            padding: 30px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }}
+        .header {{
+            margin-bottom: 25px;
+            padding-bottom: 15px;
+            border-bottom: 1px solid #dee2e6;
+        }}
+        .header-logo {{
+            margin-bottom: 10px;
+        }}
+        .header-logo img {{
+            width: 220px;
+            height: auto;
+        }}
+        .content {{
+            font-size: 15px;
+            margin: 20px 0;
+            color: #333;
+        }}
+        .link {{
+            color: #0d6efd;
+            text-decoration: none;
+            font-weight: bold;
+        }}
+        .link:hover {{
+            text-decoration: underline;
+        }}
+        .footer {{
+            margin-top: 30px;
+            padding-top: 20px;
+            border-top: 1px solid #dee2e6;
+            text-align: center;
+            color: #666;
+            font-size: 14px;
+        }}
+    </style>
+</head>
+<body>
+    <div class=""container"">
+        <div class=""header"">
+            <div class=""header-logo"">
+                <img src=""https://aquanimal.com.br/images/mailogo.jpg"" alt=""Aquanimal"" style=""width: 220px;"">
+            </div>
+        </div>
+        
+        <div class=""content"">
+            <p>Prezado Cliente, gostaríamos de informação que o rastreio de sua encomenda está disponível no site da transportadora Buslog.</p>
+            <p><a href=""https://www.track3r.com.br/rastreamento/"" class=""link"">https://www.track3r.com.br/rastreamento/</a></p>
+            <p>Digite o seu CPF e o cep destino para obter as informações.</p>
+        </div>
+
+        <div class=""footer"">
+            <p>A Aquanimal agradece.</p>
+        </div>
+    </div>
+</body>
+</html>";
+
+        return html;
+    }
+
     public void Dispose()
     {
         _sesClient?.Dispose();

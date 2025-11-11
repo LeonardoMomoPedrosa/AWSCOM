@@ -247,16 +247,18 @@ static async Task ProcessNewTrackingRecordsAsync(
         return;
     }
 
-    // Filtrar via = "C" (Correios) e via = "V" (Jadlog)
+    // Filtrar via = "C" (Correios), via = "V" (Jadlog) e via = "B" (Buslog)
     var correiosRecords = newRecords.Where(r => r.Via == "C" && !string.IsNullOrEmpty(r.Track)).ToList();
     var jadlogRecords = newRecords.Where(r => r.Via == "V" && !string.IsNullOrEmpty(r.Track)).ToList();
+    var buslogRecords = newRecords.Where(r => r.Via == "B" && !string.IsNullOrEmpty(r.Track)).ToList();
     Console.WriteLine($"   📦 Registros via Correios: {correiosRecords.Count}");
     Console.WriteLine($"   📦 Registros via Jadlog: {jadlogRecords.Count}");
+    Console.WriteLine($"   📦 Registros via Buslog: {buslogRecords.Count}");
 
     var processedCount = 0;
     var successCount = 0;
     var errorCount = 0;
-    var totalRecords = correiosRecords.Count + jadlogRecords.Count;
+    var totalRecords = correiosRecords.Count + jadlogRecords.Count + buslogRecords.Count;
 
     // Processar registros via Correios
     if (correiosRecords.Count > 0)
@@ -377,9 +379,59 @@ static async Task ProcessNewTrackingRecordsAsync(
         }
     }
 
-    if (correiosRecords.Count == 0 && jadlogRecords.Count == 0)
+    // Processar registros via Buslog (B)
+    if (buslogRecords.Count > 0)
     {
-        Console.WriteLine("   ℹ️  Nenhum registro via Correios ou Jadlog para processar");
+        foreach (var record in buslogRecords)
+        {
+            try
+            {
+                processedCount++;
+                Console.WriteLine($"\n   [{processedCount}/{totalRecords}] Processando OrderId {record.OrderId}, Track: {record.Track} (Buslog)...");
+
+                // Para via = B, não é necessário interagir com DynamoDB (por enquanto)
+                // Apenas enviar email e atualizar status
+
+                // Enviar email
+                Console.WriteLine($"      📧 Enviando email para {record.Email}...");
+                var emailSuccess = await emailService.SendBuslogEmailAsync(record.Email, record.Nome);
+
+                if (!emailSuccess)
+                {
+                    Console.WriteLine($"      ⚠️  Falha ao enviar email");
+                    errorCount++;
+                    continue;
+                }
+
+                Console.WriteLine($"      ✅ Email enviado com sucesso para {record.Email}");
+
+                // Atualizar status no SQL Server
+                Console.WriteLine($"      📝 Atualizando status no SQL Server...");
+                try
+                {
+                    await sqlService.UpdateTrackingStatusAsync(record.OrderId);
+                    Console.WriteLine($"      ✅ Status atualizado");
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"      ⚠️  Erro ao atualizar status no SQL Server: {ex.Message}");
+                    // Continua mesmo se falhar a atualização do status
+                }
+
+                successCount++;
+            }
+            catch (Exception ex)
+            {
+                errorCount++;
+                Console.WriteLine($"      ❌ Erro ao processar OrderId {record.OrderId}: {ex.Message}");
+                // Continua processando os próximos registros
+            }
+        }
+    }
+
+    if (correiosRecords.Count == 0 && jadlogRecords.Count == 0 && buslogRecords.Count == 0)
+    {
+        Console.WriteLine("   ℹ️  Nenhum registro via Correios, Jadlog ou Buslog para processar");
         return;
     }
 
