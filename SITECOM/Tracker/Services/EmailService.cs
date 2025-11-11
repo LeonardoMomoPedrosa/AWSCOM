@@ -617,7 +617,7 @@ public class EmailService
         </div>
         
         <div class=""content"">
-            <p>Prezado Cliente, gostaríamos de informação que o rastreio de sua encomenda está disponível no site da transportadora Buslog.</p>
+            <p>Prezado Cliente, gostaríamos de informar que o rastreio de sua encomenda está disponível no site da transportadora Buslog.</p>
             <p><a href=""https://www.track3r.com.br/rastreamento/"" class=""link"">https://www.track3r.com.br/rastreamento/</a></p>
             <p>Digite o seu CPF e o cep destino para obter as informações.</p>
         </div>
