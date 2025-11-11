@@ -72,10 +72,65 @@ try
     // Configurar SiteApiService para invalidação de cache
     var siteApiConfig = new SiteApiConfig();
     config.GetSection("SiteApi").Bind(siteApiConfig);
+    
+    // O ConfigurationBuilder já lê variáveis de ambiente automaticamente
+    // Formato esperado: SiteApi__Username, SiteApi__Password (com dois underscores)
+    // Também verifica diretamente via Environment.GetEnvironmentVariable como fallback
+    var configUsername = config["SiteApi:Username"];
+    var configPassword = config["SiteApi:Password"];
+    var envUsername = Environment.GetEnvironmentVariable("SiteApi__Username");
+    var envPassword = Environment.GetEnvironmentVariable("SiteApi__Password");
+    
+    // Priorizar variáveis de ambiente se existirem
+    if (!string.IsNullOrWhiteSpace(envUsername))
+    {
+        siteApiConfig.Username = envUsername;
+        Console.WriteLine($"   🔄 Username obtido de variável de ambiente (SiteApi__Username)");
+    }
+    else if (!string.IsNullOrWhiteSpace(configUsername))
+    {
+        siteApiConfig.Username = configUsername;
+        Console.WriteLine($"   🔄 Username obtido de appsettings.json");
+    }
+    
+    if (!string.IsNullOrWhiteSpace(envPassword))
+    {
+        siteApiConfig.Password = envPassword;
+        Console.WriteLine($"   🔄 Password obtido de variável de ambiente (SiteApi__Password)");
+    }
+    else if (!string.IsNullOrWhiteSpace(configPassword))
+    {
+        siteApiConfig.Password = configPassword;
+        Console.WriteLine($"   🔄 Password obtido de appsettings.json");
+    }
+    
+    // Log de configuração (sem mostrar senha completa)
+    Console.WriteLine($"   🔍 Configuração SiteApi:");
+    Console.WriteLine($"      Username: {siteApiConfig.Username ?? "[NÃO CONFIGURADO]"}");
+    Console.WriteLine($"      Password: {(string.IsNullOrWhiteSpace(siteApiConfig.Password) ? "[VAZIO/NÃO CONFIGURADO]" : "[CONFIGURADO]")}");
+    Console.WriteLine($"      AuthPath: {siteApiConfig.AuthPath}");
+    Console.WriteLine($"      InvalidateApi: {siteApiConfig.InvalidateApi}");
+    Console.WriteLine($"      Servers: {siteApiConfig.Servers.Count}");
+    foreach (var server in siteApiConfig.Servers)
+    {
+        Console.WriteLine($"         - {server.BaseUrl}");
+    }
+    
+    // Debug: verificar se variáveis de ambiente existem
+    Console.WriteLine($"   🔍 Debug - Variáveis de ambiente:");
+    Console.WriteLine($"      SiteApi__Username: {(string.IsNullOrWhiteSpace(envUsername) ? "[NÃO DEFINIDA]" : "[DEFINIDA]")}");
+    Console.WriteLine($"      SiteApi__Password: {(string.IsNullOrWhiteSpace(envPassword) ? "[NÃO DEFINIDA]" : "[DEFINIDA]")}");
+    
     if (siteApiConfig.Servers.Count > 0 && !string.IsNullOrWhiteSpace(siteApiConfig.Username))
     {
+        if (string.IsNullOrWhiteSpace(siteApiConfig.Password))
+        {
+            Console.WriteLine($"   ⚠️  AVISO: Password não configurado!");
+            Console.WriteLine($"      Configure a variável de ambiente: SiteApi__Password");
+            Console.WriteLine($"      Ou adicione no appsettings.json: SiteApi:Password");
+        }
         siteApiService = new SiteApiService(siteApiConfig);
-        Console.WriteLine($"   🔄 Cache invalidation: {siteApiConfig.Servers.Count} servidor(es) configurado(s)");
+        Console.WriteLine($"   ✅ Cache invalidation: {siteApiConfig.Servers.Count} servidor(es) configurado(s)");
     }
     else
     {
