@@ -322,6 +322,7 @@ try
     {
         Console.WriteLine("\n[STEP 8.5] Invalidando cache do e-commerce...");
         var cacheRequests = new List<CacheInvalidateRequest>();
+        var recommendedProductIdsSet = new HashSet<int>(); // Para evitar duplicatas
         
         foreach (var productId in changedProductIds)
         {
@@ -348,6 +349,35 @@ try
                 };
                 cacheRequests.Add(productDetailsRequest);
                 cacheInvalidationCount++;
+                
+                // Usar recomendações já carregadas em memória e invalidar cache de detalhes de cada produto recomendado
+                if (recommendations.TryGetValue(productId, out var recList) && recList != null && recList.Count > 0)
+                {
+                    foreach (var recommendedProduct in recList)
+                    {
+                        if (!recommendedProductIdsSet.Contains(recommendedProduct.ProductId))
+                        {
+                            try
+                            {
+                                var recommendedProductDetailsKey = SiteCacheKeyUtil.GetProductDetailsKey(recommendedProduct.ProductId);
+                                var recommendedProductDetailsRequest = new CacheInvalidateRequest
+                                {
+                                    Region = recommendedProductDetailsKey.Region,
+                                    Key = recommendedProductDetailsKey.Key,
+                                    CleanRegionInd = false
+                                };
+                                cacheRequests.Add(recommendedProductDetailsRequest);
+                                cacheInvalidationCount++;
+                                recommendedProductIdsSet.Add(recommendedProduct.ProductId);
+                            }
+                            catch (Exception ex)
+                            {
+                                Console.WriteLine($"   ⚠️  Erro ao gerar chave de cache para produto recomendado {recommendedProduct.ProductId}: {ex.Message}");
+                                cacheInvalidationFail++;
+                            }
+                        }
+                    }
+                }
             }
             catch (Exception ex)
             {
@@ -361,9 +391,12 @@ try
             try
             {
                 var productsCount = changedProductIds.Count;
-                Console.WriteLine($"   📋 Total de requisições de invalidação: {cacheRequests.Count} ({productsCount} produtos × 2 tipos de cache)");
+                var recommendedProductsCount = recommendedProductIdsSet.Count;
+                Console.WriteLine($"   📋 Total de requisições de invalidação: {cacheRequests.Count}");
+                Console.WriteLine($"      - Produtos alterados: {productsCount}");
                 Console.WriteLine($"      - Cache de recomendações: {productsCount} requisições");
-                Console.WriteLine($"      - Cache de detalhes do produto: {productsCount} requisições");
+                Console.WriteLine($"      - Cache de detalhes (produtos alterados): {productsCount} requisições");
+                Console.WriteLine($"      - Cache de detalhes (produtos recomendados): {recommendedProductsCount} requisições");
                 
                 var success = await siteApiService.InvalidateAsync(cacheRequests);
                 if (success)
