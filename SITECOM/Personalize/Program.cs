@@ -232,10 +232,23 @@ try
     var currentSnapshotMap = new Dictionary<int, string>(allProductIds.Count);
     var currentSnapshotLines = new List<string>(allProductIds.Count);
 
+    // Função helper para ordenar recomendações de forma consistente
+    // Ordena por Score DESC (relevância) e depois por ID (estabilidade quando scores são iguais)
+    Func<List<RecommendedProduct>, List<int>> orderRecommendations = (recList) =>
+    {
+        return recList
+            .OrderByDescending(r => r.Score)
+            .ThenBy(r => r.ProductId)
+            .Select(r => r.ProductId)
+            .ToList();
+    };
+
     foreach (var productId in allProductIds)
     {
+        // Ordenar recomendações de forma consistente (Score DESC, depois ID)
+        // IMPORTANTE: Mesma ordenação deve ser usada no snapshot E no DynamoDB
         var orderedRecommendedIds = recommendations.TryGetValue(productId, out var recList) && recList.Count > 0
-            ? recList.Select(r => r.ProductId).OrderBy(id => id).ToList()
+            ? orderRecommendations(recList)
             : new List<int>();
 
         var snapshotLine = orderedRecommendedIds.Count > 0
@@ -280,10 +293,18 @@ try
             {
                 if (recommendations.TryGetValue(productId, out var recList) && recList.Count > 0)
                 {
+                    // CRÍTICO: Ordenar exatamente como no snapshot para garantir consistência
+                    // Ordena por Score DESC (relevância) e depois por ID (estabilidade)
+                    // Esta ordenação DEVE ser idêntica à usada na geração do snapshot
+                    var orderedRecList = recList
+                        .OrderByDescending(r => r.Score)
+                        .ThenBy(r => r.ProductId)
+                        .ToList();
+
                     var record = new RecommendationRecord
                     {
                         ProductId = productId.ToString(),
-                        RecommendedProducts = recList,
+                        RecommendedProducts = orderedRecList,
                         LastUpdated = DateTime.UtcNow
                     };
 
