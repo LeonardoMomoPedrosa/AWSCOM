@@ -487,7 +487,7 @@ public class EmailService
         </div>
 
         <div class=""info-text"">
-            <p>Para verificar os detalhes do rastreamento, entre em <a href=""http://jadlog.com.br"" class=""link"">http://jadlog.com.br</a> e digite o número acima.</p>
+            <p>Para verificar os detalhes do rastreamento, entre em <a href=""https://jadlog.com.br"" class=""link"">https://jadlog.com.br</a> e digite o número acima.</p>
         </div>
 
         <div class=""footer"">
