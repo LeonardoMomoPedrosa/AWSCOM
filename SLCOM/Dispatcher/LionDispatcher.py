@@ -4,11 +4,11 @@ import modules.Constants
 from modules.DataTypes import ReceiptInfo
 
 # Obter variáveis de ambiente
-DB_SERVER = os.getenv('DB_SERVER', 'aadbcloud.cu9zlyfmg2ii.us-east-1.rds.amazonaws.com')
-DB_DATABASE = os.getenv('DB_DATABASE', 'SL4AAProd')
-DB_UID = os.getenv('DB_UID', 'Admin')
-DB_PWD = os.getenv('DB_PWD', 'Qgmfl123!')
-DB_PORT = os.getenv('DB_PORT', '1433')
+DB_SERVER = os.getenv('AA_DBSERVER')
+DB_DATABASE = os.getenv('AA_DB_DATABASE')
+DB_UID = os.getenv('AA_DB_UID')
+DB_PWD = os.getenv('AA_DB_PWD')
+DB_PORT = os.getenv('AA_DB_PORT')
 
 # Construir connection string
 cnxn_str = f"Driver={{ODBC Driver 17 for SQL Server}};PORT={DB_PORT};Server={DB_SERVER};Database={DB_DATABASE};UID={DB_UID};PWD={DB_PWD};"

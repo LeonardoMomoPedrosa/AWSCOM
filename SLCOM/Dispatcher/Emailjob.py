@@ -11,13 +11,13 @@ import boto3
 from botocore.exceptions import ClientError
 
 # Obter variáveis de ambiente
-DB_SERVER = os.getenv('DB_SERVER', 'aadbcloud.cu9zlyfmg2ii.us-east-1.rds.amazonaws.com')
-DB_DATABASE = os.getenv('DB_DATABASE', 'SL4AAProd')
-DB_UID = os.getenv('DB_UID', 'Admin')
-DB_PWD = os.getenv('DB_PWD', 'Qgmfl123!')
-DB_PORT = os.getenv('DB_PORT', '1433')
+DB_SERVER = os.getenv('AA_DBSERVER')
+DB_DATABASE = os.getenv('AA_DB_DATABASE')
+DB_UID = os.getenv('AA_DB_UID')
+DB_PWD = os.getenv('AA_DB_PWD')
+DB_PORT = os.getenv('AA_DB_PORT')
 
-AWS_REGION = os.getenv('AWS_REGION', 'us-east-1')
+AWS_REGION = os.getenv('AWS_REGION')
 SES_FROM_EMAIL = os.getenv('SES_FROM_EMAIL', 'aquanimal@aquanimal.com.br')
 SES_CC_EMAIL = os.getenv('SES_CC_EMAIL', 'aquanimal@aquanimal.com.br')
 SES_BCC_EMAIL = os.getenv('SES_BCC_EMAIL', 'pedrosa.leonardo@gmail.com')
