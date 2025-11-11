@@ -200,7 +200,13 @@ public class SiteApiService : ISiteApiService, IDisposable
                 throw new Exception($"Auth failed: {(int)response.StatusCode} {respStr}");
             }
 
-            var auth = JsonSerializer.Deserialize<CacheAuthResponse>(respStr);
+            // Deserializar com opções case-insensitive para suportar "token" e "Token"
+            var options = new JsonSerializerOptions
+            {
+                PropertyNameCaseInsensitive = true
+            };
+            var auth = JsonSerializer.Deserialize<CacheAuthResponse>(respStr, options);
+            
             if (auth == null || string.IsNullOrEmpty(auth.Token))
             {
                 Console.WriteLine($"   ❌ Token não encontrado na resposta");
@@ -210,6 +216,10 @@ public class SiteApiService : ISiteApiService, IDisposable
 
             Console.WriteLine($"   ✅ Autenticação bem-sucedida");
             Console.WriteLine($"   🎫 Token obtido (tamanho: {auth.Token.Length} caracteres)");
+            if (!string.IsNullOrWhiteSpace(auth.Expires))
+            {
+                Console.WriteLine($"   ⏰ Expira em: {auth.Expires}");
+            }
             return auth.Token;
         }
         catch (TaskCanceledException ex) when (ex.InnerException is TimeoutException)
