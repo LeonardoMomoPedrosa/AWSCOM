@@ -247,83 +247,140 @@ static async Task ProcessNewTrackingRecordsAsync(
         return;
     }
 
-    // Filtrar apenas via = "C" (Correios)
+    // Filtrar via = "C" (Correios) e via = "V" (Jadlog)
     var correiosRecords = newRecords.Where(r => r.Via == "C" && !string.IsNullOrEmpty(r.Track)).ToList();
+    var jadlogRecords = newRecords.Where(r => r.Via == "V" && !string.IsNullOrEmpty(r.Track)).ToList();
     Console.WriteLine($"   📦 Registros via Correios: {correiosRecords.Count}");
-
-    if (correiosRecords.Count == 0)
-    {
-        Console.WriteLine("   ℹ️  Nenhum registro via Correios para processar");
-        return;
-    }
+    Console.WriteLine($"   📦 Registros via Jadlog: {jadlogRecords.Count}");
 
     var processedCount = 0;
     var successCount = 0;
     var errorCount = 0;
+    var totalRecords = correiosRecords.Count + jadlogRecords.Count;
 
-    foreach (var record in correiosRecords)
+    // Processar registros via Correios
+    if (correiosRecords.Count > 0)
     {
-        try
+        foreach (var record in correiosRecords)
         {
-            processedCount++;
-            Console.WriteLine($"\n   [{processedCount}/{correiosRecords.Count}] Processando OrderId {record.OrderId}, Track: {record.Track}...");
-
-            // 6.1.1 - Chamar API dos Correios
-            Console.WriteLine($"      🔍 Consultando API dos Correios...");
-            var rastreamento = await correiosService.GetRastreamentoAsync(record.Track);
-            var rastreamentoJson = TrackingHelper.SerializeRastreamento(rastreamento);
-
-            // 6.1.2 - Inserir no DynamoDB
-            Console.WriteLine($"      💾 Inserindo no DynamoDB...");
-            Console.WriteLine($"      👤 Cliente: {record.Nome} ({record.Email})");
-            var trackingRecord = new TrackingRecord
-            {
-                IdPedido = record.OrderId.ToString(),
-                TipoEnvio = "C",
-                CodRastreamento = record.Track,
-                RastreamentoJson = rastreamentoJson,
-                DataCriacao = DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ"),
-                Email = record.Email,
-                Nome = record.Nome
-            };
-
-            await dynamoService.PutItemAsync(trackingRecord);
-            Console.WriteLine($"      ✅ Inserido no DynamoDB");
-
-            // 6.1.3 - Atualizar status no SQL Server
-            Console.WriteLine($"      📝 Atualizando status no SQL Server...");
             try
             {
-                await sqlService.UpdateTrackingStatusAsync(record.OrderId);
-                Console.WriteLine($"      ✅ Status atualizado");
+                processedCount++;
+                Console.WriteLine($"\n   [{processedCount}/{totalRecords}] Processando OrderId {record.OrderId}, Track: {record.Track}...");
+
+                // 6.1.1 - Chamar API dos Correios
+                Console.WriteLine($"      🔍 Consultando API dos Correios...");
+                var rastreamento = await correiosService.GetRastreamentoAsync(record.Track);
+                var rastreamentoJson = TrackingHelper.SerializeRastreamento(rastreamento);
+
+                // 6.1.2 - Inserir no DynamoDB
+                Console.WriteLine($"      💾 Inserindo no DynamoDB...");
+                Console.WriteLine($"      👤 Cliente: {record.Nome} ({record.Email})");
+                var trackingRecord = new TrackingRecord
+                {
+                    IdPedido = record.OrderId.ToString(),
+                    TipoEnvio = "C",
+                    CodRastreamento = record.Track,
+                    RastreamentoJson = rastreamentoJson,
+                    DataCriacao = DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ"),
+                    Email = record.Email,
+                    Nome = record.Nome
+                };
+
+                await dynamoService.PutItemAsync(trackingRecord);
+                Console.WriteLine($"      ✅ Inserido no DynamoDB");
+
+                // 6.1.3 - Atualizar status no SQL Server
+                Console.WriteLine($"      📝 Atualizando status no SQL Server...");
+                try
+                {
+                    await sqlService.UpdateTrackingStatusAsync(record.OrderId);
+                    Console.WriteLine($"      ✅ Status atualizado");
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"      ⚠️  Erro ao atualizar status no SQL Server: {ex.Message}");
+                    // Continua mesmo se falhar a atualização do status
+                }
+
+                // 6.1.4 - Enviar email (sempre enviar quando inserir novo registro)
+                Console.WriteLine($"      📧 Enviando email para {record.Email}...");
+                var emailSuccess = await emailService.SendTrackingEmailAsync(record.Email, record.Nome, rastreamentoJson);
+
+                if (!emailSuccess)
+                {
+                    Console.WriteLine($"      ⚠️  Falha ao enviar email, mas registro foi criado no DynamoDB");
+                }
+                else
+                {
+                    Console.WriteLine($"      ✅ Email enviado com sucesso para {record.Email}");
+                }
+
+                successCount++;
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"      ⚠️  Erro ao atualizar status no SQL Server: {ex.Message}");
-                // Continua mesmo se falhar a atualização do status
+                errorCount++;
+                Console.WriteLine($"      ❌ Erro ao processar OrderId {record.OrderId}: {ex.Message}");
+                // Continua processando os próximos registros
             }
-
-            // 6.1.4 - Enviar email (sempre enviar quando inserir novo registro)
-            Console.WriteLine($"      📧 Enviando email para {record.Email}...");
-            var emailSuccess = await emailService.SendTrackingEmailAsync(record.Email, record.Nome, rastreamentoJson);
-
-            if (!emailSuccess)
-            {
-                Console.WriteLine($"      ⚠️  Falha ao enviar email, mas registro foi criado no DynamoDB");
-            }
-            else
-            {
-                Console.WriteLine($"      ✅ Email enviado com sucesso para {record.Email}");
-            }
-
-            successCount++;
         }
-        catch (Exception ex)
+    }
+
+    // Processar registros via Jadlog (V)
+    if (jadlogRecords.Count > 0)
+    {
+        foreach (var record in jadlogRecords)
         {
-            errorCount++;
-            Console.WriteLine($"      ❌ Erro ao processar OrderId {record.OrderId}: {ex.Message}");
-            // Continua processando os próximos registros
+            try
+            {
+                processedCount++;
+                Console.WriteLine($"\n   [{processedCount}/{totalRecords}] Processando OrderId {record.OrderId}, Track: {record.Track} (Jadlog)...");
+
+                // Para via = V, não é necessário interagir com DynamoDB (por enquanto)
+                // Apenas enviar email e atualizar status
+
+                // Enviar email
+                Console.WriteLine($"      📧 Enviando email para {record.Email}...");
+                var emailSuccess = await emailService.SendJadlogEmailAsync(record.Email, record.Nome, record.Track);
+
+                if (!emailSuccess)
+                {
+                    Console.WriteLine($"      ⚠️  Falha ao enviar email");
+                    errorCount++;
+                    continue;
+                }
+
+                Console.WriteLine($"      ✅ Email enviado com sucesso para {record.Email}");
+
+                // Atualizar status no SQL Server
+                Console.WriteLine($"      📝 Atualizando status no SQL Server...");
+                try
+                {
+                    await sqlService.UpdateTrackingStatusAsync(record.OrderId);
+                    Console.WriteLine($"      ✅ Status atualizado");
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"      ⚠️  Erro ao atualizar status no SQL Server: {ex.Message}");
+                    // Continua mesmo se falhar a atualização do status
+                }
+
+                successCount++;
+            }
+            catch (Exception ex)
+            {
+                errorCount++;
+                Console.WriteLine($"      ❌ Erro ao processar OrderId {record.OrderId}: {ex.Message}");
+                // Continua processando os próximos registros
+            }
         }
+    }
+
+    if (correiosRecords.Count == 0 && jadlogRecords.Count == 0)
+    {
+        Console.WriteLine("   ℹ️  Nenhum registro via Correios ou Jadlog para processar");
+        return;
     }
 
     Console.WriteLine($"\n   📊 Resumo:");

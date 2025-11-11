@@ -340,6 +340,166 @@ public class EmailService
         return html;
     }
 
+    public async Task<bool> SendJadlogEmailAsync(string toEmail, string nomeCliente, string codRastreamento)
+    {
+        try
+        {
+            if (string.IsNullOrWhiteSpace(toEmail))
+            {
+                Console.WriteLine($"      ⚠️  Email vazio para {nomeCliente}. Pulando...");
+                return false;
+            }
+
+            if (string.IsNullOrWhiteSpace(codRastreamento))
+            {
+                Console.WriteLine($"      ⚠️  Código de rastreamento vazio. Pulando email...");
+                return false;
+            }
+
+            var htmlBody = GenerateJadlogEmailHtml(nomeCliente, codRastreamento);
+
+            var destination = new Destination
+            {
+                ToAddresses = new List<string> { toEmail }
+            };
+
+            // Adicionar CCO (cópia oculta) se configurado
+            if (!string.IsNullOrWhiteSpace(_bccEmail))
+            {
+                destination.BccAddresses = new List<string> { _bccEmail };
+            }
+
+            var request = new SendEmailRequest
+            {
+                Source = _fromEmail,
+                Destination = destination,
+                Message = new Message
+                {
+                    Subject = new Content($"Rastreamento Disponível - {codRastreamento}"),
+                    Body = new Body
+                    {
+                        Html = new Content { Charset = "UTF-8", Data = htmlBody }
+                    }
+                }
+            };
+
+            var response = await _sesClient.SendEmailAsync(request);
+            Console.WriteLine($"      ✅ Email enviado para {toEmail} (MessageId: {response.MessageId})");
+            return true;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"      ❌ Erro ao enviar email para {toEmail}: {ex.Message}");
+            return false;
+        }
+    }
+
+    private string GenerateJadlogEmailHtml(string nomeCliente, string codRastreamento)
+    {
+        var html = $@"
+<!DOCTYPE html>
+<html lang=""pt-BR"">
+<head>
+    <meta charset=""UTF-8"">
+    <meta name=""viewport"" content=""width=device-width, initial-scale=1.0"">
+    <title>Rastreamento Disponível</title>
+    <style>
+        body {{
+            font-family: Arial, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f4f4f4;
+        }}
+        .container {{
+            background-color: #ffffff;
+            border-radius: 8px;
+            padding: 30px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }}
+        .header {{
+            margin-bottom: 25px;
+            padding-bottom: 15px;
+            border-bottom: 1px solid #dee2e6;
+        }}
+        .header-logo {{
+            margin-bottom: 10px;
+        }}
+        .header-logo img {{
+            width: 220px;
+            height: auto;
+        }}
+        .greeting {{
+            font-size: 16px;
+            margin-bottom: 20px;
+        }}
+        .tracking-code {{
+            background-color: #f8f9fa;
+            border: 2px solid #0d6efd;
+            border-radius: 8px;
+            padding: 20px;
+            margin: 20px 0;
+            text-align: center;
+            font-size: 18px;
+            font-weight: bold;
+            color: #0d6efd;
+        }}
+        .info-text {{
+            font-size: 15px;
+            margin: 20px 0;
+            color: #333;
+        }}
+        .link {{
+            color: #0d6efd;
+            text-decoration: none;
+            font-weight: bold;
+        }}
+        .link:hover {{
+            text-decoration: underline;
+        }}
+        .footer {{
+            margin-top: 30px;
+            padding-top: 20px;
+            border-top: 1px solid #dee2e6;
+            text-align: center;
+            color: #666;
+            font-size: 14px;
+        }}
+    </style>
+</head>
+<body>
+    <div class=""container"">
+        <div class=""header"">
+            <div class=""header-logo"">
+                <img src=""https://aquanimal.com.br/images/mailogo.jpg"" alt=""Aquanimal"" style=""width: 220px;"">
+            </div>
+        </div>
+        
+        <div class=""greeting"">
+            <p>Olá <strong>{nomeCliente}</strong>,</p>
+            <p>Gostaríamos de informar que seu rastreamento já está disponível.</p>
+        </div>
+
+        <div class=""tracking-code"">
+            {codRastreamento}
+        </div>
+
+        <div class=""info-text"">
+            <p>Para verificar os detalhes do rastreamento, entre em <a href=""http://jadlog.com.br"" class=""link"">http://jadlog.com.br</a> e digite o número acima.</p>
+        </div>
+
+        <div class=""footer"">
+            <p>A Aquanimal agradece.</p>
+        </div>
+    </div>
+</body>
+</html>";
+
+        return html;
+    }
+
     public void Dispose()
     {
         _sesClient?.Dispose();
