@@ -1,4 +1,5 @@
 import pyodbc
+import os
 import modules.Constants
 from email.message import EmailMessage
 from modules.DataTypes import ReceiptInfo
@@ -9,7 +10,20 @@ import ssl
 import boto3
 from botocore.exceptions import ClientError
 
-cnxn_str = ("Driver={ODBC Driver 17 for SQL Server};PORT=1433;Server=aadbcloud.cu9zlyfmg2ii.us-east-1.rds.amazonaws.com;Database=SL4AAProd;UID=Admin;PWD=Qgmfl123!;")
+# Obter variáveis de ambiente
+DB_SERVER = os.getenv('DB_SERVER', 'aadbcloud.cu9zlyfmg2ii.us-east-1.rds.amazonaws.com')
+DB_DATABASE = os.getenv('DB_DATABASE', 'SL4AAProd')
+DB_UID = os.getenv('DB_UID', 'Admin')
+DB_PWD = os.getenv('DB_PWD', 'Qgmfl123!')
+DB_PORT = os.getenv('DB_PORT', '1433')
+
+AWS_REGION = os.getenv('AWS_REGION', 'us-east-1')
+SES_FROM_EMAIL = os.getenv('SES_FROM_EMAIL', 'aquanimal@aquanimal.com.br')
+SES_CC_EMAIL = os.getenv('SES_CC_EMAIL', 'aquanimal@aquanimal.com.br')
+SES_BCC_EMAIL = os.getenv('SES_BCC_EMAIL', 'pedrosa.leonardo@gmail.com')
+
+# Construir connection string
+cnxn_str = f"Driver={{ODBC Driver 17 for SQL Server}};PORT={DB_PORT};Server={DB_SERVER};Database={DB_DATABASE};UID={DB_UID};PWD={DB_PWD};"
 conn = pyodbc.connect(cnxn_str, autocommit=False)
 
 def trxSuccess(aTrxId):
@@ -19,17 +33,17 @@ def trxSuccess(aTrxId):
 
 def send_mail2(to_email, subject, message, cci):
     """Envia email usando AWS SES SDK (boto3)"""
-    ses_client = boto3.client('ses', region_name='us-east-1')
+    ses_client = boto3.client('ses', region_name=AWS_REGION)
     
     to_addresses = [to_email]
-    cc_addresses = ['aquanimal@aquanimal.com.br'] if cci == 1 else []
-    bcc_addresses = ['pedrosa.leonardo@gmail.com']
+    cc_addresses = [SES_CC_EMAIL] if cci == 1 else []
+    bcc_addresses = [SES_BCC_EMAIL] if SES_BCC_EMAIL else []
     
     print(f"Enviando email para {to_email}")
     
     try:
         response = ses_client.send_email(
-            Source='aquanimal@aquanimal.com.br',
+            Source=SES_FROM_EMAIL,
             Destination={
                 'ToAddresses': to_addresses,
                 'CcAddresses': cc_addresses,

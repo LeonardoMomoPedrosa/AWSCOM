@@ -3,8 +3,15 @@ import pyodbc
 import modules.Constants
 from modules.DataTypes import ReceiptInfo
 
-#cnxn_str = ("Driver={ODBC Driver 17 for SQL Server};PORT=1433;Server=aadbcloud.cu9zlyfmg2ii.us-east-1.rds.amazonaws.com;Database=SL4AAProd;UID=admin;PWD=Qgmfl123!;")
-cnxn_str = ("Driver={ODBC Driver 17 for SQL Server};PORT=1433;Server=aadbcloud.cu9zlyfmg2ii.us-east-1.rds.amazonaws.com;Database=SL4AAProd;UID=Admin;PWD=Qgmfl123!;")
+# Obter variáveis de ambiente
+DB_SERVER = os.getenv('DB_SERVER', 'aadbcloud.cu9zlyfmg2ii.us-east-1.rds.amazonaws.com')
+DB_DATABASE = os.getenv('DB_DATABASE', 'SL4AAProd')
+DB_UID = os.getenv('DB_UID', 'Admin')
+DB_PWD = os.getenv('DB_PWD', 'Qgmfl123!')
+DB_PORT = os.getenv('DB_PORT', '1433')
+
+# Construir connection string
+cnxn_str = f"Driver={{ODBC Driver 17 for SQL Server}};PORT={DB_PORT};Server={DB_SERVER};Database={DB_DATABASE};UID={DB_UID};PWD={DB_PWD};"
 conn = pyodbc.connect(cnxn_str, autocommit=False)
 
 def saveTrxLog(aTrxInfos):

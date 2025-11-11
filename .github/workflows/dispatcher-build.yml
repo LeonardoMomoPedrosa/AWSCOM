@@ -1,0 +1,268 @@
+name: Deploy Dispatcher (Python)
+
+on:
+  push:
+    branches: [ main, develop ]
+    paths:
+      - 'SLCOM/Dispatcher/**'
+      - '.github/workflows/dispatcher-build.yml'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'SLCOM/Dispatcher/**'
+  workflow_dispatch:
+
+jobs:
+
+  pre-actions:
+    name: Pre Actions
+    runs-on: ubuntu-latest
+    steps:
+      - name: Contexto
+        run: |
+          echo "🔧 Iniciando pipeline Dispatcher..."
+          echo "📦 Script Python para envio de emails via TRANSACTION_LOG"
+
+  open-ssh-port:
+    name: Abrir porta SSH AWS (22)
+    runs-on: ubuntu-latest
+    needs: pre-actions
+    steps:
+      - name: Configurar credenciais AWS
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Abrir porta SSH temporariamente
+        run: |
+          aws ec2 authorize-security-group-ingress \
+          --group-id ${{ secrets.BASTION_SG_ID }} \
+          --protocol tcp --port 22 --cidr 0.0.0.0/0 || echo "⚠️ Regra já existente"
+
+  prepare-files:
+    name: Preparar arquivos
+    runs-on: ubuntu-latest
+    needs: pre-actions
+    steps:
+      - name: Checkout código
+        uses: actions/checkout@v4
+
+      - name: Criar arquivo de informações do build
+        run: |
+          cat > SLCOM/Dispatcher/BUILD_INFO.txt <<EOF
+          Build: ${{ github.run_number }}
+          Commit: ${{ github.sha }}
+          Branch: ${{ github.ref_name }}
+          Data: $(date -u +"%Y-%m-%d %H:%M:%S UTC")
+          Autor: ${{ github.actor }}
+          EOF
+
+      - name: Compactar arquivos
+        run: |
+          cd SLCOM/Dispatcher
+          zip -r ../../dispatcher.zip .
+          cd ../..
+          ls -lh dispatcher.zip
+
+      - name: Armazenar artefato no GitHub
+        uses: actions/upload-artifact@v4
+        with:
+          name: Dispatcher
+          path: dispatcher.zip
+          retention-days: 30
+
+  transfer-bastion:
+    name: Transfer para Bastion
+    runs-on: ubuntu-latest
+    needs: [ prepare-files, open-ssh-port ]
+    steps:
+      - name: Aguardar propagação da regra SSH
+        run: |
+          echo "⏳ Aguardando 10 segundos para garantir que a porta SSH está aberta..."
+          sleep 10
+          echo "✅ Prosseguindo com o transfer"
+      
+      - name: Testar conectividade SSH
+        uses: appleboy/ssh-action@v1.1.0
+        with:
+          host: ${{ secrets.BASTION_HOST }}
+          username: ${{ secrets.BASTION_USERNAME }}
+          key: ${{ secrets.BASTION_SSH_KEY }}
+          script: |
+            echo "✅ Conectado no Bastion com sucesso!"
+            whoami
+            pwd
+            ls -la /home/ec2-user/deploys/ || mkdir -p /home/ec2-user/deploys/
+      
+      - name: Download artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: Dispatcher
+
+      - name: Verificar arquivo baixado
+        run: |
+          echo "=== Conteúdo do diretório atual ==="
+          pwd
+          ls -la
+          echo ""
+          echo "=== Verificando arquivo específico ==="
+          if [ -f "dispatcher.zip" ]; then
+            ls -lh dispatcher.zip
+            echo "✅ Arquivo encontrado!"
+          else
+            echo "❌ Arquivo dispatcher.zip NÃO encontrado!"
+            echo "Procurando arquivos .zip:"
+            find . -name "*.zip" -type f
+          fi
+
+      - name: Enviar artefato para o Bastion
+        uses: appleboy/scp-action@v0.1.4
+        with:
+          host: ${{ secrets.BASTION_HOST }}
+          username: ${{ secrets.BASTION_USERNAME }}
+          key: ${{ secrets.BASTION_SSH_KEY }}
+          source: "dispatcher.zip"
+          target: "/home/ec2-user/deploys/"
+
+  deploy-bastion:
+    name: Deploy no Bastion (Dispatcher2)
+    runs-on: ubuntu-latest
+    needs: transfer-bastion
+    steps:
+      - name: Descompactar e configurar no Bastion
+        uses: appleboy/ssh-action@v1.1.0
+        with:
+          host: ${{ secrets.BASTION_HOST }}
+          username: ${{ secrets.BASTION_USERNAME }}
+          key: ${{ secrets.BASTION_SSH_KEY }}
+          script_stop: false
+          script: |
+            set -e
+            echo "=========================================="
+            echo "  Deploy Dispatcher no Bastion"
+            echo "=========================================="
+            
+            DEPLOY_ZIP="/home/ec2-user/deploys/dispatcher.zip"
+            TARGET_DIR="$HOME/Dispatcher2"
+            BACKUP_DIR="$HOME/Dispatcher2-backup-$(date +%Y%m%d-%H%M%S)"
+            
+            # Verificar se arquivo foi enviado
+            if [ ! -f "$DEPLOY_ZIP" ]; then
+              echo "❌ Arquivo $DEPLOY_ZIP não encontrado!"
+              exit 1
+            fi
+            
+            echo "✅ Arquivo encontrado: $DEPLOY_ZIP"
+            ls -lh "$DEPLOY_ZIP"
+            
+            # Fazer backup da versão anterior (se existir)
+            if [ -d "$TARGET_DIR" ]; then
+              echo "📦 Criando backup da versão anterior..."
+              cp -r "$TARGET_DIR" "$BACKUP_DIR"
+              echo "✅ Backup criado em: $BACKUP_DIR"
+            fi
+            
+            # Criar diretório de destino
+            echo "📁 Preparando diretório $TARGET_DIR..."
+            mkdir -p "$TARGET_DIR"
+            
+            # Limpar arquivos antigos
+            echo "🧹 Limpando arquivos antigos..."
+            rm -rf "$TARGET_DIR"/*
+            
+            # Extrair novo pacote
+            echo "📦 Extraindo pacote..."
+            unzip -o "$DEPLOY_ZIP" -d "$TARGET_DIR"
+            
+            # Ajustar permissões
+            echo "🔐 Ajustando permissões..."
+            chmod +x "$TARGET_DIR"/*.py || true
+            find "$TARGET_DIR" -type f -name "*.py" -exec chmod 755 {} \;
+            
+            # Verificar instalação
+            echo ""
+            echo "=========================================="
+            echo "  ✅ Deploy concluído com sucesso!"
+            echo "=========================================="
+            echo ""
+            echo "📂 Localização: $TARGET_DIR"
+            echo "📋 Arquivos instalados:"
+            ls -lh "$TARGET_DIR" | head -20
+            echo ""
+            
+            # Mostrar informações do build
+            if [ -f "$TARGET_DIR/BUILD_INFO.txt" ]; then
+              echo "📝 Informações do Build:"
+              cat "$TARGET_DIR/BUILD_INFO.txt"
+              echo ""
+            fi
+            
+            # Verificar se Python está instalado
+            if command -v python3 &> /dev/null; then
+              echo "✅ Python instalado: $(python3 --version)"
+            else
+              echo "⚠️ Python não encontrado!"
+            fi
+            
+            echo ""
+            echo "=========================================="
+            echo "  📋 Como executar:"
+            echo "=========================================="
+            echo "  cd ~/Dispatcher2"
+            echo "  python3 EmailJob.py"
+            echo ""
+            echo "  Ou configure no cron (a cada 5 minutos):"
+            echo "  */5 * * * * cd ~/Dispatcher2 && /usr/bin/python3 EmailJob.py >> ~/Dispatcher2/dispatcher.log 2>&1"
+            echo "=========================================="
+
+  close-ssh-port:
+    name: Fechar porta SSH AWS (22)
+    runs-on: ubuntu-latest
+    needs: [ open-ssh-port, deploy-bastion ]
+    if: always()
+    steps:
+      - name: Configurar credenciais AWS
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Fechar porta SSH
+        run: |
+          aws ec2 revoke-security-group-ingress \
+            --group-id ${{ secrets.BASTION_SG_ID }} \
+            --protocol tcp --port 22 --cidr 0.0.0.0/0 || echo "⚠️ Regra já removida"
+
+  post-actions:
+    name: Post Actions
+    runs-on: ubuntu-latest
+    needs: [ prepare-files, transfer-bastion, deploy-bastion, close-ssh-port ]
+    if: always()
+    steps:
+      - name: Resumo
+        run: |
+          echo "=========================================="
+          echo "  🏁 Pipeline Dispatcher Finalizado"
+          echo "=========================================="
+          echo ""
+          echo "📊 Status dos Jobs:"
+          echo "  prepare-files: ${{ needs.prepare-files.result }}"
+          echo "  transfer-bastion: ${{ needs['transfer-bastion'].result }}"
+          echo "  deploy-bastion: ${{ needs['deploy-bastion'].result }}"
+          echo "  close-ssh-port: ${{ needs['close-ssh-port'].result }}"
+          echo ""
+          echo "=========================================="
+          
+          if [ "${{ needs.prepare-files.result }}" == "success" ] && \
+             [ "${{ needs['transfer-bastion'].result }}" == "success" ] && \
+             [ "${{ needs['deploy-bastion'].result }}" == "success" ]; then
+            echo "✅ Deploy concluído com sucesso!"
+            echo "📂 Aplicação disponível em: ~/Dispatcher2"
+            echo "🚀 Execute manualmente ou configure no cron"
+          else
+            echo "❌ Pipeline teve falhas. Verifique os logs acima."
+          fi
+
