@@ -327,20 +327,32 @@ try
         {
             try
             {
-                var cacheKeyObj = SiteCacheKeyUtil.GetRecomendationKey(productId);
-                var request = new CacheInvalidateRequest
+                // Invalidar cache de recomendações
+                var recommendationKey = SiteCacheKeyUtil.GetRecomendationKey(productId);
+                var recommendationRequest = new CacheInvalidateRequest
                 {
-                    Region = cacheKeyObj.Region,
-                    Key = cacheKeyObj.Key,
+                    Region = recommendationKey.Region,
+                    Key = recommendationKey.Key,
                     CleanRegionInd = false
                 };
-                cacheRequests.Add(request);
+                cacheRequests.Add(recommendationRequest);
+                cacheInvalidationCount++;
+                
+                // Invalidar cache de detalhes do produto
+                var productDetailsKey = SiteCacheKeyUtil.GetProductDetailsKey(productId);
+                var productDetailsRequest = new CacheInvalidateRequest
+                {
+                    Region = productDetailsKey.Region,
+                    Key = productDetailsKey.Key,
+                    CleanRegionInd = false
+                };
+                cacheRequests.Add(productDetailsRequest);
                 cacheInvalidationCount++;
             }
             catch (Exception ex)
             {
                 Console.WriteLine($"   ⚠️  Erro ao gerar chave de cache para produto {productId}: {ex.Message}");
-                cacheInvalidationFail++;
+                cacheInvalidationFail += 2; // Conta ambas as invalidações que falharam
             }
         }
         
@@ -348,12 +360,17 @@ try
         {
             try
             {
-                Console.WriteLine($"   📋 Total de requisições de invalidação: {cacheRequests.Count}");
+                var productsCount = changedProductIds.Count;
+                Console.WriteLine($"   📋 Total de requisições de invalidação: {cacheRequests.Count} ({productsCount} produtos × 2 tipos de cache)");
+                Console.WriteLine($"      - Cache de recomendações: {productsCount} requisições");
+                Console.WriteLine($"      - Cache de detalhes do produto: {productsCount} requisições");
+                
                 var success = await siteApiService.InvalidateAsync(cacheRequests);
                 if (success)
                 {
                     cacheInvalidationSuccess = cacheRequests.Count;
-                    Console.WriteLine($"   ✅ Cache invalidado com sucesso para {cacheRequests.Count} produto(s)");
+                    Console.WriteLine($"   ✅ Cache invalidado com sucesso para {productsCount} produto(s)");
+                    Console.WriteLine($"      ({cacheRequests.Count} requisições de invalidação)");
                 }
                 else
                 {
