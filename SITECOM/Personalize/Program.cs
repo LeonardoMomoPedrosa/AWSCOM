@@ -293,21 +293,34 @@ try
         {
             try
             {
+                Console.WriteLine($"   📋 Total de requisições de invalidação: {cacheRequests.Count}");
                 var success = await siteApiService.InvalidateAsync(cacheRequests);
                 if (success)
                 {
                     cacheInvalidationSuccess = cacheRequests.Count;
-                    Console.WriteLine($"   ✅ Cache invalidado para {cacheRequests.Count} produto(s)");
+                    Console.WriteLine($"   ✅ Cache invalidado com sucesso para {cacheRequests.Count} produto(s)");
                 }
                 else
                 {
                     cacheInvalidationFail += cacheRequests.Count;
                     Console.WriteLine($"   ⚠️  Algumas invalidações de cache falharam");
+                    Console.WriteLine($"   📊 Resumo: {cacheInvalidationSuccess} sucesso, {cacheInvalidationFail} falhas");
                 }
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"   ❌ Erro ao invalidar cache: {ex.Message}");
+                Console.WriteLine($"   ❌ ERRO CRÍTICO ao invalidar cache");
+                Console.WriteLine($"   📋 Exception Type: {ex.GetType().Name}");
+                Console.WriteLine($"   📄 Message: {ex.Message}");
+                if (ex.InnerException != null)
+                {
+                    Console.WriteLine($"   📄 Inner Exception: {ex.InnerException.GetType().Name} - {ex.InnerException.Message}");
+                    if (ex.InnerException.StackTrace != null)
+                    {
+                        Console.WriteLine($"   📚 Inner Stack Trace:\n{ex.InnerException.StackTrace}");
+                    }
+                }
+                Console.WriteLine($"   📚 Stack Trace:\n{ex.StackTrace}");
                 cacheInvalidationFail += cacheRequests.Count;
             }
         }

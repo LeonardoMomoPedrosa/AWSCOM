@@ -34,9 +34,16 @@ public class SiteApiService : ISiteApiService, IDisposable
 
             var tasks = _config.Servers.Select(async server =>
             {
+                HttpClient? httpClient = null;
                 try
                 {
-                    var httpClient = new HttpClient();
+                    var fullUrl = new Uri(new Uri(server.BaseUrl), _config.InvalidateApi).ToString();
+                    Console.WriteLine($"   🔄 Tentando invalidar cache no servidor: {server.BaseUrl}");
+                    Console.WriteLine($"   📍 URL completa: {fullUrl}");
+                    Console.WriteLine($"   📦 Requisições a invalidar: {requestsList.Count}");
+
+                    httpClient = new HttpClient();
+                    httpClient.Timeout = TimeSpan.FromSeconds(30);
                     httpClient.BaseAddress = new Uri(server.BaseUrl);
                     httpClient.DefaultRequestHeaders.Authorization = 
                         new AuthenticationHeaderValue("Bearer", token);
@@ -45,25 +52,83 @@ public class SiteApiService : ISiteApiService, IDisposable
                     var body = JsonSerializer.Serialize(requestsList);
                     var content = new StringContent(body, Encoding.UTF8, "application/json");
 
+                    Console.WriteLine($"   📤 Enviando requisição POST...");
                     var response = await httpClient.PostAsync(_config.InvalidateApi, content);
+                    
+                    var responseContent = await response.Content.ReadAsStringAsync();
                     
                     if (!response.IsSuccessStatusCode)
                     {
-                        var errorContent = await response.Content.ReadAsStringAsync();
-                        Console.WriteLine($"   ⚠️  Falha ao invalidar cache no servidor {server.BaseUrl}: {(int)response.StatusCode} {errorContent}");
+                        Console.WriteLine($"   ⚠️  FALHA ao invalidar cache no servidor {server.BaseUrl}");
+                        Console.WriteLine($"   📊 Status Code: {(int)response.StatusCode} ({response.StatusCode})");
+                        Console.WriteLine($"   📋 Reason Phrase: {response.ReasonPhrase}");
+                        Console.WriteLine($"   📄 Response Body: {responseContent}");
+                        Console.WriteLine($"   🔗 URL: {fullUrl}");
+                        Console.WriteLine($"   📦 Request Body (primeiros 500 chars): {(body.Length > 500 ? body.Substring(0, 500) + "..." : body)}");
                         allSuccess = false;
                     }
                     else
                     {
                         Console.WriteLine($"   ✅ Cache invalidado no servidor {server.BaseUrl}");
+                        Console.WriteLine($"   📊 Status Code: {(int)response.StatusCode}");
+                        if (!string.IsNullOrWhiteSpace(responseContent))
+                        {
+                            Console.WriteLine($"   📄 Response: {responseContent}");
+                        }
                     }
 
                     httpClient.Dispose();
                 }
+                catch (TaskCanceledException ex) when (ex.InnerException is TimeoutException)
+                {
+                    Console.WriteLine($"   ❌ TIMEOUT ao invalidar cache no servidor {server.BaseUrl}");
+                    Console.WriteLine($"   ⏱️  Timeout após 30 segundos");
+                    Console.WriteLine($"   🔗 URL: {new Uri(new Uri(server.BaseUrl), _config.InvalidateApi)}");
+                    Console.WriteLine($"   📋 Exception Type: {ex.GetType().Name}");
+                    Console.WriteLine($"   📄 Message: {ex.Message}");
+                    if (ex.InnerException != null)
+                    {
+                        Console.WriteLine($"   📄 Inner Exception: {ex.InnerException.GetType().Name} - {ex.InnerException.Message}");
+                    }
+                    Console.WriteLine($"   📚 Stack Trace:\n{ex.StackTrace}");
+                    allSuccess = false;
+                    httpClient?.Dispose();
+                }
+                catch (HttpRequestException ex)
+                {
+                    Console.WriteLine($"   ❌ ERRO HTTP ao invalidar cache no servidor {server.BaseUrl}");
+                    Console.WriteLine($"   🔗 URL: {new Uri(new Uri(server.BaseUrl), _config.InvalidateApi)}");
+                    Console.WriteLine($"   📋 Exception Type: {ex.GetType().Name}");
+                    Console.WriteLine($"   📄 Message: {ex.Message}");
+                    if (ex.InnerException != null)
+                    {
+                        Console.WriteLine($"   📄 Inner Exception: {ex.InnerException.GetType().Name} - {ex.InnerException.Message}");
+                        if (ex.InnerException.StackTrace != null)
+                        {
+                            Console.WriteLine($"   📚 Inner Stack Trace:\n{ex.InnerException.StackTrace}");
+                        }
+                    }
+                    Console.WriteLine($"   📚 Stack Trace:\n{ex.StackTrace}");
+                    allSuccess = false;
+                    httpClient?.Dispose();
+                }
                 catch (Exception ex)
                 {
-                    Console.WriteLine($"   ❌ Erro ao invalidar cache no servidor {server.BaseUrl}: {ex.Message}");
+                    Console.WriteLine($"   ❌ ERRO ao invalidar cache no servidor {server.BaseUrl}");
+                    Console.WriteLine($"   🔗 URL: {new Uri(new Uri(server.BaseUrl), _config.InvalidateApi)}");
+                    Console.WriteLine($"   📋 Exception Type: {ex.GetType().Name}");
+                    Console.WriteLine($"   📄 Message: {ex.Message}");
+                    if (ex.InnerException != null)
+                    {
+                        Console.WriteLine($"   📄 Inner Exception: {ex.InnerException.GetType().Name} - {ex.InnerException.Message}");
+                        if (ex.InnerException.StackTrace != null)
+                        {
+                            Console.WriteLine($"   📚 Inner Stack Trace:\n{ex.InnerException.StackTrace}");
+                        }
+                    }
+                    Console.WriteLine($"   📚 Stack Trace:\n{ex.StackTrace}");
                     allSuccess = false;
+                    httpClient?.Dispose();
                 }
             });
 
@@ -72,7 +137,18 @@ public class SiteApiService : ISiteApiService, IDisposable
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"   ❌ Erro ao obter token para invalidação de cache: {ex.Message}");
+            Console.WriteLine($"   ❌ ERRO CRÍTICO ao processar invalidação de cache");
+            Console.WriteLine($"   📋 Exception Type: {ex.GetType().Name}");
+            Console.WriteLine($"   📄 Message: {ex.Message}");
+            if (ex.InnerException != null)
+            {
+                Console.WriteLine($"   📄 Inner Exception: {ex.InnerException.GetType().Name} - {ex.InnerException.Message}");
+                if (ex.InnerException.StackTrace != null)
+                {
+                    Console.WriteLine($"   📚 Inner Stack Trace:\n{ex.InnerException.StackTrace}");
+                }
+            }
+            Console.WriteLine($"   📚 Stack Trace:\n{ex.StackTrace}");
             return false;
         }
     }
@@ -85,35 +161,91 @@ public class SiteApiService : ISiteApiService, IDisposable
         }
 
         var server = _config.Servers.First();
-        var httpClient = new HttpClient();
-        httpClient.BaseAddress = new Uri(server.BaseUrl);
-        httpClient.DefaultRequestHeaders.Add("Accept", "application/json");
-
-        var credentials = new 
-        { 
-            username = _config.Username, 
-            password = _config.Password 
-        };
+        var fullUrl = new Uri(new Uri(server.BaseUrl), _config.AuthPath).ToString();
+        HttpClient? httpClient = null;
         
-        var payload = JsonSerializer.Serialize(credentials);
-        using var content = new StringContent(payload, Encoding.UTF8, "application/json");
-        var response = await httpClient.PostAsync(_config.AuthPath, content);
-        var respStr = await response.Content.ReadAsStringAsync();
-
-        httpClient.Dispose();
-
-        if (!response.IsSuccessStatusCode)
+        try
         {
-            throw new Exception($"Auth failed: {(int)response.StatusCode} {respStr}");
-        }
+            Console.WriteLine($"   🔐 Autenticando no servidor: {server.BaseUrl}");
+            Console.WriteLine($"   📍 URL de autenticação: {fullUrl}");
+            Console.WriteLine($"   👤 Username: {_config.Username}");
+            
+            httpClient = new HttpClient();
+            httpClient.Timeout = TimeSpan.FromSeconds(30);
+            httpClient.BaseAddress = new Uri(server.BaseUrl);
+            httpClient.DefaultRequestHeaders.Add("Accept", "application/json");
 
-        var auth = JsonSerializer.Deserialize<CacheAuthResponse>(respStr);
-        if (auth == null || string.IsNullOrEmpty(auth.Token))
+            var credentials = new 
+            { 
+                username = _config.Username, 
+                password = _config.Password 
+            };
+            
+            var payload = JsonSerializer.Serialize(credentials);
+            using var content = new StringContent(payload, Encoding.UTF8, "application/json");
+            
+            Console.WriteLine($"   📤 Enviando requisição de autenticação...");
+            var response = await httpClient.PostAsync(_config.AuthPath, content);
+            var respStr = await response.Content.ReadAsStringAsync();
+
+            httpClient.Dispose();
+
+            if (!response.IsSuccessStatusCode)
+            {
+                Console.WriteLine($"   ❌ FALHA na autenticação");
+                Console.WriteLine($"   📊 Status Code: {(int)response.StatusCode} ({response.StatusCode})");
+                Console.WriteLine($"   📋 Reason Phrase: {response.ReasonPhrase}");
+                Console.WriteLine($"   📄 Response Body: {respStr}");
+                Console.WriteLine($"   🔗 URL: {fullUrl}");
+                throw new Exception($"Auth failed: {(int)response.StatusCode} {respStr}");
+            }
+
+            var auth = JsonSerializer.Deserialize<CacheAuthResponse>(respStr);
+            if (auth == null || string.IsNullOrEmpty(auth.Token))
+            {
+                Console.WriteLine($"   ❌ Token não encontrado na resposta");
+                Console.WriteLine($"   📄 Response Body: {respStr}");
+                throw new Exception("Token não encontrado na resposta de autenticação");
+            }
+
+            Console.WriteLine($"   ✅ Autenticação bem-sucedida");
+            Console.WriteLine($"   🎫 Token obtido (tamanho: {auth.Token.Length} caracteres)");
+            return auth.Token;
+        }
+        catch (TaskCanceledException ex) when (ex.InnerException is TimeoutException)
         {
-            throw new Exception("Token não encontrado na resposta de autenticação");
+            Console.WriteLine($"   ❌ TIMEOUT na autenticação");
+            Console.WriteLine($"   ⏱️  Timeout após 30 segundos");
+            Console.WriteLine($"   🔗 URL: {fullUrl}");
+            httpClient?.Dispose();
+            throw new Exception($"Timeout na autenticação: {ex.Message}", ex);
         }
-
-        return auth.Token;
+        catch (HttpRequestException ex)
+        {
+            Console.WriteLine($"   ❌ ERRO HTTP na autenticação");
+            Console.WriteLine($"   🔗 URL: {fullUrl}");
+            Console.WriteLine($"   📋 Exception Type: {ex.GetType().Name}");
+            Console.WriteLine($"   📄 Message: {ex.Message}");
+            if (ex.InnerException != null)
+            {
+                Console.WriteLine($"   📄 Inner Exception: {ex.InnerException.GetType().Name} - {ex.InnerException.Message}");
+            }
+            httpClient?.Dispose();
+            throw;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"   ❌ ERRO na autenticação");
+            Console.WriteLine($"   🔗 URL: {fullUrl}");
+            Console.WriteLine($"   📋 Exception Type: {ex.GetType().Name}");
+            Console.WriteLine($"   📄 Message: {ex.Message}");
+            if (ex.InnerException != null)
+            {
+                Console.WriteLine($"   📄 Inner Exception: {ex.InnerException.GetType().Name} - {ex.InnerException.Message}");
+            }
+            httpClient?.Dispose();
+            throw;
+        }
     }
 
     public void Dispose()
