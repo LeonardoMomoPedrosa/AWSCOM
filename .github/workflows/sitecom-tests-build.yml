@@ -1,0 +1,289 @@
+name: Deploy SITECOM Tests (Python)
+
+on:
+  push:
+    branches: [ main, develop ]
+    paths:
+      - 'SITECOM/Tests/**'
+      - '.github/workflows/sitecom-tests-build.yml'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'SITECOM/Tests/**'
+  workflow_dispatch:
+
+jobs:
+
+  pre-actions:
+    name: Pre Actions
+    runs-on: ubuntu-latest
+    steps:
+      - name: Contexto
+        run: |
+          echo "🔧 Iniciando pipeline SITECOM Tests..."
+          echo "📦 Script Python para envio de buslog.json para API webhook"
+
+  open-ssh-port:
+    name: Abrir porta SSH AWS (22)
+    runs-on: ubuntu-latest
+    needs: pre-actions
+    steps:
+      - name: Configurar credenciais AWS
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Abrir porta SSH temporariamente
+        run: |
+          aws ec2 authorize-security-group-ingress \
+          --group-id ${{ secrets.BASTION_SG_ID }} \
+          --protocol tcp --port 22 --cidr 0.0.0.0/0 || echo "⚠️ Regra já existente"
+
+  prepare-files:
+    name: Preparar arquivos
+    runs-on: ubuntu-latest
+    needs: pre-actions
+    steps:
+      - name: Checkout código
+        uses: actions/checkout@v4
+
+      - name: Criar arquivo de informações do build
+        run: |
+          cat > SITECOM/Tests/BUILD_INFO.txt <<EOF
+          Build: ${{ github.run_number }}
+          Commit: ${{ github.sha }}
+          Branch: ${{ github.ref_name }}
+          Data: $(date -u +"%Y-%m-%d %H:%M:%S UTC")
+          Autor: ${{ github.actor }}
+          EOF
+
+      - name: Compactar arquivos
+        run: |
+          cd SITECOM/Tests
+          zip -r ../../sitecom-tests.zip .
+          cd ../..
+          ls -lh sitecom-tests.zip
+
+      - name: Armazenar artefato no GitHub
+        uses: actions/upload-artifact@v4
+        with:
+          name: SITECOM-Tests
+          path: sitecom-tests.zip
+          retention-days: 30
+
+  transfer-bastion:
+    name: Transfer para Bastion
+    runs-on: ubuntu-latest
+    needs: [ prepare-files, open-ssh-port ]
+    steps:
+      - name: Aguardar propagação da regra SSH
+        run: |
+          echo "⏳ Aguardando 10 segundos para garantir que a porta SSH está aberta..."
+          sleep 10
+          echo "✅ Prosseguindo com o transfer"
+      
+      - name: Testar conectividade SSH
+        uses: appleboy/ssh-action@v1.1.0
+        with:
+          host: ${{ secrets.BASTION_HOST }}
+          username: ${{ secrets.BASTION_USERNAME }}
+          key: ${{ secrets.BASTION_SSH_KEY }}
+          script: |
+            echo "✅ Conectado no Bastion com sucesso!"
+            whoami
+            pwd
+            ls -la /home/ec2-user/deploys/ || mkdir -p /home/ec2-user/deploys/
+      
+      - name: Download artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: SITECOM-Tests
+
+      - name: Verificar arquivo baixado
+        run: |
+          echo "=== Conteúdo do diretório atual ==="
+          pwd
+          ls -la
+          echo ""
+          echo "=== Verificando arquivo específico ==="
+          if [ -f "sitecom-tests.zip" ]; then
+            ls -lh sitecom-tests.zip
+            echo "✅ Arquivo encontrado!"
+          else
+            echo "❌ Arquivo sitecom-tests.zip NÃO encontrado!"
+            echo "Procurando arquivos .zip:"
+            find . -name "*.zip" -type f
+          fi
+
+      - name: Enviar artefato para o Bastion
+        uses: appleboy/scp-action@v0.1.4
+        with:
+          host: ${{ secrets.BASTION_HOST }}
+          username: ${{ secrets.BASTION_USERNAME }}
+          key: ${{ secrets.BASTION_SSH_KEY }}
+          source: "sitecom-tests.zip"
+          target: "/home/ec2-user/deploys/"
+
+  deploy-bastion:
+    name: Deploy no Bastion (SITECOM/Tests)
+    runs-on: ubuntu-latest
+    needs: transfer-bastion
+    steps:
+      - name: Descompactar e configurar no Bastion
+        uses: appleboy/ssh-action@v1.1.0
+        with:
+          host: ${{ secrets.BASTION_HOST }}
+          username: ${{ secrets.BASTION_USERNAME }}
+          key: ${{ secrets.BASTION_SSH_KEY }}
+          script_stop: false
+          script: |
+            set -e
+            echo "=========================================="
+            echo "  Deploy SITECOM Tests no Bastion"
+            echo "=========================================="
+            
+            DEPLOY_ZIP="/home/ec2-user/deploys/sitecom-tests.zip"
+            TARGET_DIR="$HOME/SITECOM/Tests"
+            BACKUP_DIR="$HOME/SITECOM/Tests-backup-$(date +%Y%m%d-%H%M%S)"
+            
+            # Verificar se arquivo foi enviado
+            if [ ! -f "$DEPLOY_ZIP" ]; then
+              echo "❌ Arquivo $DEPLOY_ZIP não encontrado!"
+              exit 1
+            fi
+            
+            echo "✅ Arquivo encontrado: $DEPLOY_ZIP"
+            ls -lh "$DEPLOY_ZIP"
+            
+            # Fazer backup da versão anterior (se existir)
+            if [ -d "$TARGET_DIR" ]; then
+              echo "📦 Criando backup da versão anterior..."
+              cp -r "$TARGET_DIR" "$BACKUP_DIR"
+              echo "✅ Backup criado em: $BACKUP_DIR"
+            fi
+            
+            # Criar diretório de destino
+            echo "📁 Preparando diretório $TARGET_DIR..."
+            mkdir -p "$TARGET_DIR"
+            
+            # Limpar arquivos antigos
+            echo "🧹 Limpando arquivos antigos..."
+            rm -rf "$TARGET_DIR"/*
+            
+            # Extrair novo pacote
+            echo "📦 Extraindo pacote..."
+            unzip -o "$DEPLOY_ZIP" -d "$TARGET_DIR"
+            
+            # Ajustar permissões
+            echo "🔐 Ajustando permissões..."
+            chmod +x "$TARGET_DIR"/*.py || true
+            find "$TARGET_DIR" -type f -name "*.py" -exec chmod 755 {} \;
+            
+            # Instalar dependências Python (se requirements.txt existir)
+            if [ -f "$TARGET_DIR/requirements.txt" ]; then
+              echo "📦 Instalando dependências Python..."
+              if command -v python3 &> /dev/null; then
+                python3 -m pip install --user -r "$TARGET_DIR/requirements.txt" || echo "⚠️ Falha ao instalar dependências (pode ser normal se já estiver instalado)"
+              else
+                echo "⚠️ Python3 não encontrado!"
+              fi
+            fi
+            
+            # Verificar instalação
+            echo ""
+            echo "=========================================="
+            echo "  ✅ Deploy concluído com sucesso!"
+            echo "=========================================="
+            echo ""
+            echo "📂 Localização: $TARGET_DIR"
+            echo "📋 Arquivos instalados:"
+            ls -lh "$TARGET_DIR" | head -20
+            echo ""
+            
+            # Mostrar informações do build
+            if [ -f "$TARGET_DIR/BUILD_INFO.txt" ]; then
+              echo "📝 Informações do Build:"
+              cat "$TARGET_DIR/BUILD_INFO.txt"
+              echo ""
+            fi
+            
+            # Verificar se Python está instalado
+            if command -v python3 &> /dev/null; then
+              echo "✅ Python instalado: $(python3 --version)"
+            else
+              echo "⚠️ Python não encontrado!"
+            fi
+            
+            # Verificar se requests está instalado
+            if python3 -c "import requests" 2>/dev/null; then
+              echo "✅ Biblioteca 'requests' instalada"
+            else
+              echo "⚠️ Biblioteca 'requests' não encontrada!"
+              echo "   Execute: python3 -m pip install --user -r $TARGET_DIR/requirements.txt"
+            fi
+            
+            echo ""
+            echo "=========================================="
+            echo "  📋 Como executar:"
+            echo "=========================================="
+            echo "  cd ~/SITECOM/Tests"
+            echo "  export buslog_token='seu_token_aqui'"
+            echo "  python3 send_buslog.py buslog.json"
+            echo ""
+            echo "  Ou configure no cron (conforme necessário):"
+            echo "  0 * * * * cd ~/SITECOM/Tests && export buslog_token='\$TOKEN' && /usr/bin/python3 send_buslog.py buslog.json >> ~/SITECOM/Tests/buslog.log 2>&1"
+            echo "=========================================="
+
+  close-ssh-port:
+    name: Fechar porta SSH AWS (22)
+    runs-on: ubuntu-latest
+    needs: [ open-ssh-port, deploy-bastion ]
+    if: always()
+    steps:
+      - name: Configurar credenciais AWS
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Fechar porta SSH
+        run: |
+          aws ec2 revoke-security-group-ingress \
+            --group-id ${{ secrets.BASTION_SG_ID }} \
+            --protocol tcp --port 22 --cidr 0.0.0.0/0 || echo "⚠️ Regra já removida"
+
+  post-actions:
+    name: Post Actions
+    runs-on: ubuntu-latest
+    needs: [ prepare-files, transfer-bastion, deploy-bastion, close-ssh-port ]
+    if: always()
+    steps:
+      - name: Resumo
+        run: |
+          echo "=========================================="
+          echo "  🏁 Pipeline SITECOM Tests Finalizado"
+          echo "=========================================="
+          echo ""
+          echo "📊 Status dos Jobs:"
+          echo "  prepare-files: ${{ needs.prepare-files.result }}"
+          echo "  transfer-bastion: ${{ needs['transfer-bastion'].result }}"
+          echo "  deploy-bastion: ${{ needs['deploy-bastion'].result }}"
+          echo "  close-ssh-port: ${{ needs['close-ssh-port'].result }}"
+          echo ""
+          echo "=========================================="
+          
+          if [ "${{ needs.prepare-files.result }}" == "success" ] && \
+             [ "${{ needs['transfer-bastion'].result }}" == "success" ] && \
+             [ "${{ needs['deploy-bastion'].result }}" == "success" ]; then
+            echo "✅ Deploy concluído com sucesso!"
+            echo "📂 Aplicação disponível em: ~/SITECOM/Tests"
+            echo "🚀 Execute manualmente ou configure no cron"
+            echo ""
+            echo "💡 Lembrete: Configure a variável de ambiente 'buslog_token' antes de executar"
+          else
+            echo "❌ Pipeline teve falhas. Verifique os logs acima."
+          fi
+
