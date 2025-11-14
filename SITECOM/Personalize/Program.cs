@@ -262,6 +262,7 @@ try
     MarkStep("Preparação snapshot atual");
 
     var changedProductIds = new HashSet<int>();
+    Console.WriteLine($"   📊 Comparando snapshots...");
     foreach (var productId in allProductIds)
     {
         var currentLine = currentSnapshotMap[productId];
@@ -270,6 +271,9 @@ try
         if (!string.Equals(currentLine, previousLine, StringComparison.Ordinal))
         {
             changedProductIds.Add(productId);
+            Console.WriteLine($"   🔄 Produto {productId} alterado:");
+            Console.WriteLine($"      ANTES: {(string.IsNullOrEmpty(previousLine) ? "[NOVO]" : previousLine)}");
+            Console.WriteLine($"      DEPOIS: {currentLine}");
         }
     }
 
